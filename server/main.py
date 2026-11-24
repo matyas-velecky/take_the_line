@@ -1,11 +1,15 @@
 import asyncio
 import math
+from pathlib import Path
 
 import socketio
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 fastapi_app = FastAPI()
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 players = {}
 sid_to_player = {}
@@ -90,7 +94,12 @@ def hit_trail(player_number, ignore_recent=0):
 
 @fastapi_app.get("/")
 def home():
-    return {"message": "TakeTheLine Socket.IO server"}
+    return FileResponse(frontend_dist / "index.html")
+
+
+@fastapi_app.get("/healthz")
+def health():
+    return {"status": "ok"}
 
 
 @sio.event
@@ -214,5 +223,6 @@ async def game_loop():
 async def start_game_loop():
     sio.start_background_task(game_loop)
 
+fastapi_app.mount("/", StaticFiles(directory=frontend_dist), name="frontend")
 
 app = socketio.ASGIApp(sio, fastapi_app, socketio_path="socket.io")

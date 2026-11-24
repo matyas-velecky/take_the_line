@@ -1,5 +1,6 @@
 
 import * as THREE from 'three';
+import { io } from 'socket.io-client';
 import { makeFloor, makeGrid } from './floor';
 import { Player } from './player';
 
