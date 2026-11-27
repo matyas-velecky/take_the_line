@@ -16,7 +16,7 @@ fastapi_app = FastAPI()
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
-PLAYER_SPEED = 15.0
+PLAYER_SPEED = 25.0
 TURN_SPEED = 3.5
 MAX_TRAIL_SEGMENTS = 1200
 # Change this value to set how many trail segments each player keeps.
