@@ -14,6 +14,9 @@ export class Player {
         this.turnSpeed = 2.5;
         this.heading = x <= 0 ? Math.PI / 2 : -Math.PI / 2;
         this.mesh.rotation.y = this.heading;
+        this.targetPosition = this.mesh.position.clone();
+        this.targetHeading = this.heading;
+        this.hasServerState = false;
         this.keys = new Set();
         this.controls = controls;
 
@@ -52,6 +55,33 @@ export class Player {
     check() {
         this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -49, 49);
         this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -49, 49);
+    }
+
+    setServerState(position, heading, jumpHeight) {
+        this.targetPosition.set(
+            position[0],
+            position[1] + jumpHeight,
+            position[2]
+        );
+        this.targetHeading = heading;
+
+        if (!this.hasServerState) {
+            this.mesh.position.copy(this.targetPosition);
+            this.mesh.rotation.y = heading;
+            this.hasServerState = true;
+        }
+    }
+
+    interpolate(delta) {
+        if (!this.hasServerState) return;
+
+        const blend = 1 - Math.exp(-18 * delta);
+        this.mesh.position.lerp(this.targetPosition, blend);
+        const headingDifference = Math.atan2(
+            Math.sin(this.targetHeading - this.mesh.rotation.y),
+            Math.cos(this.targetHeading - this.mesh.rotation.y)
+        );
+        this.mesh.rotation.y += headingDifference * blend;
     }
 
     collidesWithTrail(trailGroup, ignoreOwnRecentSegments = false) {

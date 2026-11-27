@@ -21,6 +21,7 @@ MAX_TRAIL_SEGMENTS = 1200
 # Change this value to set how many trail segments each player keeps.
 COUNTDOWN_SECONDS = 10
 TICK_RATE = 60
+STATE_UPDATE_RATE = 30
 JUMP_DURATION_SECONDS = 0.75
 JUMP_COOLDOWN_SECONDS = 1.5
 BOOST_DURATION_SECONDS = 1.0
@@ -355,8 +356,11 @@ async def restart(sid):
 
 
 async def game_loop():
+    tick_count = 0
     while True:
         await asyncio.sleep(1 / TICK_RATE)
+        tick_count += 1
+        should_emit_state = tick_count % max(1, TICK_RATE // STATE_UPDATE_RATE) == 0
         delta = 1 / TICK_RATE
 
         for room in list(rooms.values()):
@@ -372,7 +376,8 @@ async def game_loop():
                 room["countdown_deadline"] = None
 
             if not room["started"] or room["winner"] is not None:
-                await emit_room_state(room)
+                if should_emit_state:
+                    await emit_room_state(room)
                 continue
 
             for number, player in room["players"].items():
@@ -452,7 +457,8 @@ async def game_loop():
                     room["winner"] = room["players"][1]["name"]
                     room["players"][2]["game_over"] = True
 
-            await emit_room_state(room)
+            if should_emit_state:
+                await emit_room_state(room)
 
 
 @fastapi_app.on_event("startup")

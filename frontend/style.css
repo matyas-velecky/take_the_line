@@ -17,6 +17,11 @@ body {
   background: #050510;
 }
 
+body.pointer-locked,
+body.pointer-locked canvas {
+  cursor: none;
+}
+
 button, input { font: inherit; }
 
 button {

@@ -34,6 +34,7 @@ const playerTwo = new Player(
 );
 let localPlayerNumber = null;
 let localRoomId = null;
+let matchInProgress = false;
 let pressedKeys = new Set();
 
 scene.add(makeFloor());
@@ -63,6 +64,25 @@ gameOverScreen.innerHTML = `
     </div>
 `;
 document.body.appendChild(gameOverScreen);
+
+const pointerLockHint = document.createElement('div');
+pointerLockHint.textContent = 'Click to lock cursor · Esc to release';
+pointerLockHint.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    display: none;
+    transform: translateX(-50%);
+    padding: 8px 12px;
+    border: 1px solid #176171;
+    border-radius: 6px;
+    background: rgba(5, 5, 16, 0.8);
+    color: white;
+    font: 13px sans-serif;
+    pointer-events: none;
+    z-index: 5;
+`;
+document.body.appendChild(pointerLockHint);
 
 const settingsPanel = document.createElement('div');
 settingsPanel.style.cssText = `
@@ -241,6 +261,36 @@ function updateDrivingCamera(delta, snap = false) {
         );
     }
 
+    renderer.domElement.addEventListener('click', () => {
+        if (!matchInProgress || document.pointerLockElement === renderer.domElement) return;
+        if (typeof renderer.domElement.requestPointerLock !== 'function') {
+            pointerLockHint.textContent = 'Cursor locking is not supported by this browser';
+            return;
+        }
+
+        const lockRequest = renderer.domElement.requestPointerLock();
+        if (lockRequest instanceof Promise) {
+            lockRequest.catch(() => {
+                pointerLockHint.textContent = 'Click to lock cursor · Esc to release';
+            });
+        }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+        const isLocked = document.pointerLockElement === renderer.domElement;
+        document.body.classList.toggle('pointer-locked', isLocked);
+        if (!isLocked && pressedKeys.size > 0) {
+            pressedKeys.clear();
+            socket.emit('input', { keys: [] });
+        }
+        pointerLockHint.style.display = matchInProgress && !isLocked ? 'block' : 'none';
+    });
+
+    document.addEventListener('pointerlockerror', () => {
+        pointerLockHint.textContent = 'Cursor lock failed · Click to try again';
+        pointerLockHint.style.display = matchInProgress ? 'block' : 'none';
+    });
+
     camera.lookAt(cameraLookTarget);
 }
 
@@ -278,20 +328,27 @@ document.querySelector('#copy-room-code').addEventListener('click', async () => 
 });
 
 socket.on('state', (state) => {
+    matchInProgress = state.started && !state.winner;
+    if (!matchInProgress && document.pointerLockElement === renderer.domElement) {
+        document.exitPointerLock();
+    }
     for (const [number, playerState] of Object.entries(state.players)) {
         const player = number === '1' ? playerOne : playerTwo;
-        player.mesh.position.set(
-            playerState.position[0],
-            playerState.position[1] + playerState.jump_height,
-            playerState.position[2]
+        player.setServerState(
+            playerState.position,
+            playerState.heading,
+            playerState.jump_height
         );
-        player.mesh.rotation.y = playerState.heading;
         player.setColor(playerState.color);
         player.syncTrail(playerState.trail_updates, state.trails_reset);
         player.gameOver = playerState.game_over;
     }
 
     updateMatchStatus(state, matchStatusElements);
+    pointerLockHint.style.display =
+        matchInProgress && document.pointerLockElement !== renderer.domElement
+            ? 'block'
+            : 'none';
 });
 
 socket.on('disconnect', () => {
@@ -334,7 +391,10 @@ window.addEventListener('blur', () => {
 });
 
 function animate() {
-    updateDrivingCamera(cameraClock.getDelta());
+    const delta = cameraClock.getDelta();
+    playerOne.interpolate(delta);
+    playerTwo.interpolate(delta);
+    updateDrivingCamera(delta);
     renderer.render(scene, camera);
 }
 
