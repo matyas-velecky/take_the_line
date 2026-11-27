@@ -22,7 +22,13 @@ document.body.appendChild(renderer.domElement);
 const socket = io();
 
 const playerOne = new Player(-20, 0, 0, 0xFF0000);
-const playerTwo = new Player(20, 0, 0, 0x00FFFF, ['arrowleft', 'arrowright']);
+const playerTwo = new Player(
+    20,
+    0,
+    0,
+    0x00FFFF,
+    ['arrowleft', 'arrowright', 'arrowup', 'arrowdown']
+);
 let localPlayerNumber = null;
 let localRoomId = null;
 let pressedKeys = new Set();

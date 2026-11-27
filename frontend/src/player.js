@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 export class Player {
-    constructor(x, y, z, col, controls = ["a", "d"]) {
+    constructor(x, y, z, col, controls = ["a", "d", "w", "s"]) {
         const geometry = new THREE.BoxGeometry(2, 2, 2);
         const material = new THREE.MeshBasicMaterial({ color: col });
 
@@ -163,9 +163,27 @@ export class Player {
         this.check();
         if (this.gameOver) return;
 
-        const turnLeft = this.keys.has(this.controls[0]);
-        const turnRight = this.keys.has(this.controls[1]);
-        this.heading += (Number(turnLeft) - Number(turnRight)) * this.turnSpeed * delta;
+        const moveX =
+            Number(this.keys.has(this.controls[1])) -
+            Number(this.keys.has(this.controls[0]));
+        const moveZ =
+            Number(this.keys.has(this.controls[3])) -
+            Number(this.keys.has(this.controls[2]));
+
+        if (moveX || moveZ) {
+            const targetHeading = Math.atan2(moveX, moveZ);
+            const headingDifference = Math.atan2(
+                Math.sin(targetHeading - this.heading),
+                Math.cos(targetHeading - this.heading)
+            );
+            const turnAmount = THREE.MathUtils.clamp(
+                headingDifference,
+                -this.turnSpeed * delta,
+                this.turnSpeed * delta
+            );
+            this.heading += turnAmount;
+        }
+
         this.mesh.rotation.y = this.heading;
         this.mesh.position.x += Math.sin(this.heading) * this.speed * delta;
         this.mesh.position.z += Math.cos(this.heading) * this.speed * delta;

@@ -264,14 +264,23 @@ async def game_loop():
 
                 keys = player["keys"]
                 if number == 1:
-                    turn_left = "a" in keys
-                    turn_right = "d" in keys
+                    move_x = int("d" in keys) - int("a" in keys)
+                    move_z = int("s" in keys) - int("w" in keys)
                 else:
-                    turn_left = "arrowleft" in keys
-                    turn_right = "arrowright" in keys
+                    move_x = int("arrowright" in keys) - int("arrowleft" in keys)
+                    move_z = int("arrowdown" in keys) - int("arrowup" in keys)
 
-                turn_direction = int(turn_left) - int(turn_right)
-                player["heading"] += turn_direction * TURN_SPEED * delta
+                if move_x or move_z:
+                    target_heading = math.atan2(move_x, move_z)
+                    heading_difference = (
+                        target_heading - player["heading"] + math.pi
+                    ) % (2 * math.pi) - math.pi
+                    turn_amount = max(
+                        -TURN_SPEED * delta,
+                        min(TURN_SPEED * delta, heading_difference),
+                    )
+                    player["heading"] += turn_amount
+
                 player["position"][0] += math.sin(player["heading"]) * PLAYER_SPEED * delta
                 player["position"][2] += math.cos(player["heading"]) * PLAYER_SPEED * delta
 
