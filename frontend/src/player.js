@@ -36,15 +36,15 @@ export class Player {
     }
 
     check() {
-        this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -49, 49);
-        this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -49, 49);
+        this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -37.5, 37.5);
+        this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -37.5, 37.5);
     }
 
     collidesWithTrail(trailGroup, ignoreOwnRecentSegments = false) {
         const playerPosition = this.mesh.position;
         const playerRadius = 1;
         const trailRadius = 0.2;
-        const recentSegmentCount = 120;
+        const recentSegmentCount = 12;
 
         for (let index = 0; index < trailGroup.children.length; index++) {
             if (

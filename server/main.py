@@ -17,7 +17,8 @@ frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 PLAYER_SPEED = 15.0
 TURN_SPEED = 2.5
-MAX_TRAIL_SEGMENTS = 20
+MAX_TRAIL_SEGMENTS = 120
+# Change this value to set how many trail segments each player keeps.
 COUNTDOWN_SECONDS = 10
 TICK_RATE = 60
 

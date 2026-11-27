@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 export function makeFloor(){
-const floorGeometry = new THREE.PlaneGeometry(50, 50);
+const floorGeometry = new THREE.PlaneGeometry(75, 75);
 
 const floorMaterial = new THREE.MeshBasicMaterial({
     color: 0x080818,
@@ -22,8 +22,8 @@ return floor;
 export function makeGrid(){
 
 const grid = new THREE.GridHelper(
-    50,       
-    50,       
+    75,       
+    75,       
     0x00ffff, 
     0x004466
 );
