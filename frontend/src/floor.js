@@ -31,3 +31,24 @@ const grid = new THREE.GridHelper(
 grid.position.y = 0.02;
 return grid;
 }
+
+export function makeArenaBorder() {
+const border = new THREE.Group();
+const material = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+const longEdge = new THREE.BoxGeometry(100, 0.3, 0.25);
+const shortEdge = new THREE.BoxGeometry(0.25, 0.3, 99.5);
+
+for (const z of [-49.5, 49.5]) {
+    const edge = new THREE.Mesh(longEdge, material);
+    edge.position.set(0, 0.15, z);
+    border.add(edge);
+}
+
+for (const x of [-49.5, 49.5]) {
+    const edge = new THREE.Mesh(shortEdge, material);
+    edge.position.set(x, 0.15, 0);
+    border.add(edge);
+}
+
+return border;
+}

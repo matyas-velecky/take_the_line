@@ -1,7 +1,7 @@
 
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
-import { makeFloor, makeGrid } from './floor';
+import { makeArenaBorder, makeFloor, makeGrid } from './floor';
 import { Player } from './player';
 import { showMatchStopped, updateMatchStatus } from './functionalities';
 
@@ -14,6 +14,9 @@ const camera = new THREE.PerspectiveCamera(
     0.1,
     1000
 );
+const cameraClock = new THREE.Clock();
+const cameraPosition = new THREE.Vector3();
+const cameraLookTarget = new THREE.Vector3();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -35,13 +38,11 @@ let pressedKeys = new Set();
 
 scene.add(makeFloor());
 scene.add(makeGrid());
+scene.add(makeArenaBorder());
 scene.add(playerOne.mesh);
 scene.add(playerOne.trailGroup);
 scene.add(playerTwo.mesh);
 scene.add(playerTwo.trailGroup);
-
-camera.position.set(0, 50, 50);
-camera.lookAt(0, 0, 0);
 
 const gameOverScreen = document.createElement('div');
 gameOverScreen.style.cssText = `
@@ -217,6 +218,38 @@ const matchStatusElements = {
     roomStatus: document.querySelector('#room-status'),
 };
 
+function updateDrivingCamera(delta, snap = false) {
+    if (localPlayerNumber === null) return;
+
+    const localPlayer = localPlayerNumber === 1 ? playerOne : playerTwo;
+    const heading = localPlayer.mesh.rotation.y;
+    const forwardX = Math.sin(heading);
+    const forwardZ = Math.cos(heading);
+    const position = localPlayer.mesh.position;
+
+    cameraPosition.set(
+        position.x - forwardX * 9,
+        position.y + 5,
+        position.z - forwardZ * 9
+    );
+    cameraLookTarget.set(
+        position.x + forwardX * 4,
+        position.y + 1,
+        position.z + forwardZ * 4
+    );
+
+    if (snap) {
+        camera.position.copy(cameraPosition);
+    } else {
+        camera.position.lerp(
+            cameraPosition,
+            1 - Math.exp(-6 * delta)
+        );
+    }
+
+    camera.lookAt(cameraLookTarget);
+}
+
 socket.on('room_error', ({ message }) => {
     lobbyError.textContent = message;
     createRoomButton.disabled = false;
@@ -230,6 +263,7 @@ socket.on('assigned', ({ player, room, name }) => {
     createRoomButton.disabled = false;
     joinRoomButton.disabled = false;
     const localPlayer = localPlayerNumber === 1 ? playerOne : playerTwo;
+    updateDrivingCamera(0, true);
     const selectedColor = storedColor || (player === 1 ? '#ff0000' : '#00ffff');
     colorInput.value = selectedColor;
     localPlayer.setColor(selectedColor);
@@ -297,6 +331,7 @@ window.addEventListener('keyup', (event) => {
 });
 
 function animate() {
+    updateDrivingCamera(cameraClock.getDelta());
     renderer.render(scene, camera);
 }
 
