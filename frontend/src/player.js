@@ -1,5 +1,8 @@
 import * as THREE from "three";
 
+// Keep in sync with MAX_TRAIL_SEGMENTS in server/main.py.
+const MAX_TRAIL_SEGMENTS = 1200;
+
 export class Player {
     constructor(x, y, z, col, controls = ["a", "d", "w", "s"]) {
         const geometry = new THREE.BoxGeometry(2, 2, 2);
@@ -24,15 +27,26 @@ export class Player {
         this.trailColor = col;
         this.lastTrailPosition = this.mesh.position.clone();
         this.trailGroup = new THREE.Group();
+        this.trailGeometry = new THREE.BoxGeometry(0.4, 0.15, 1);
+        this.trailMaterial = new THREE.MeshBasicMaterial({ color: col });
+        this.trailMesh = new THREE.InstancedMesh(
+            this.trailGeometry,
+            this.trailMaterial,
+            MAX_TRAIL_SEGMENTS
+        );
+        this.trailMesh.count = 0;
+        this.trailMesh.frustumCulled = false;
+        this.trailMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.trailGroup.add(this.trailMesh);
+        this.trailTransform = new THREE.Object3D();
+        this.trailWriteIndex = 0;
         this.gameOver = false;
     }
 
     setColor(color) {
         this.trailColor = color;
         this.mesh.material.color.set(color);
-        for (const segment of this.trailGroup.children) {
-            segment.material.color.set(color);
-        }
+        this.trailMaterial.color.set(color);
     }
 
     check() {
@@ -91,25 +105,41 @@ export class Player {
         return false;
     }
 
-    syncTrail(segments) {
-        this.trailGroup.clear();
+    syncTrail(segments, reset = false) {
+        if (reset) {
+            this.trailMesh.count = 0;
+            this.trailWriteIndex = 0;
+        }
 
         for (const [startX, startZ, endX, endZ] of segments) {
-            const start = new THREE.Vector3(startX, 0.08, startZ);
-            const end = new THREE.Vector3(endX, 0.08, endZ);
-            const distance = start.distanceTo(end);
-
+            const deltaX = endX - startX;
+            const deltaZ = endZ - startZ;
+            const distance = Math.hypot(deltaX, deltaZ);
             if (distance < 0.15) continue;
 
-            const geometry = new THREE.BoxGeometry(0.4, 0.15, distance);
-            const material = new THREE.MeshBasicMaterial({ color: this.trailColor });
-            const segment = new THREE.Mesh(geometry, material);
+            let index;
+            if (this.trailMesh.count < MAX_TRAIL_SEGMENTS) {
+                index = this.trailMesh.count;
+                this.trailMesh.count++;
+                if (this.trailMesh.count === MAX_TRAIL_SEGMENTS) {
+                    this.trailWriteIndex = 0;
+                }
+            } else {
+                index = this.trailWriteIndex;
+                this.trailWriteIndex = (this.trailWriteIndex + 1) % MAX_TRAIL_SEGMENTS;
+            }
 
-            segment.position.copy(start).add(end).multiplyScalar(0.5);
-            const direction = new THREE.Vector3().subVectors(end, start);
-            segment.rotation.y = Math.atan2(direction.x, direction.z);
-            this.trailGroup.add(segment);
+            this.trailTransform.position.set(
+                (startX + endX) / 2,
+                0.08,
+                (startZ + endZ) / 2
+            );
+            this.trailTransform.rotation.set(0, Math.atan2(deltaX, deltaZ), 0);
+            this.trailTransform.scale.set(1, 1, distance);
+            this.trailTransform.updateMatrix();
+            this.trailMesh.setMatrixAt(index, this.trailTransform.matrix);
         }
+        this.trailMesh.instanceMatrix.needsUpdate = true;
     }
 
     reset(x = 0, z = 0) {
@@ -117,7 +147,9 @@ export class Player {
         this.heading = x <= 0 ? Math.PI / 2 : -Math.PI / 2;
         this.mesh.rotation.set(0, this.heading, 0);
         this.lastTrailPosition.copy(this.mesh.position);
-        this.trailGroup.clear();
+        this.trailMesh.count = 0;
+        this.trailWriteIndex = 0;
+        this.trailMesh.instanceMatrix.needsUpdate = true;
         this.keys.clear();
         this.gameOver = false;
     }
@@ -130,30 +162,7 @@ export class Player {
 
     if (distance < 0.15) return;
 
-    const geometry = new THREE.BoxGeometry(
-        0.4,
-        0.15,
-        distance
-    );
-
-    const material = new THREE.MeshBasicMaterial({
-        color: this.trailColor
-    });
-
-    const segment = new THREE.Mesh(geometry, material);
-
-    segment.position.copy(start).add(end).multiplyScalar(0.5);
-
-    const direction = new THREE.Vector3()
-        .subVectors(end, start);
-
-    segment.rotation.y = Math.atan2(
-        direction.x,
-        direction.z
-    );
-
-    this.trailGroup.add(segment);
-
+    this.syncTrail([[start.x, start.z, end.x, end.z]]);
     this.lastTrailPosition.copy(end);
     }
 

@@ -287,7 +287,7 @@ socket.on('state', (state) => {
         );
         player.mesh.rotation.y = playerState.heading;
         player.setColor(playerState.color);
-        player.syncTrail(playerState.trails);
+        player.syncTrail(playerState.trail_updates, state.trails_reset);
         player.gameOver = playerState.game_over;
     }
 

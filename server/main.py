@@ -17,7 +17,7 @@ frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 PLAYER_SPEED = 15.0
 TURN_SPEED = 2.5
-MAX_TRAIL_SEGMENTS = 300
+MAX_TRAIL_SEGMENTS = 1200
 # Change this value to set how many trail segments each player keeps.
 COUNTDOWN_SECONDS = 10
 TICK_RATE = 60
@@ -45,6 +45,7 @@ def new_player(number, color):
         "name": f"Player {number}",
         "keys": set(),
         "trails": [],
+        "trail_updates": [],
         "last_trail": [x, 0.0],
         "jump_until": 0.0,
         "jump_ready_at": 0.0,
@@ -64,12 +65,14 @@ def new_room(room_id):
         "winner": None,
         "started": False,
         "countdown_deadline": None,
+        "trails_reset": True,
     }
 
 
 def reset_room(room):
     room["winner"] = None
     room["started"] = False
+    room["trails_reset"] = True
     room["countdown_deadline"] = (
         time.monotonic() + COUNTDOWN_SECONDS
         if len(room["participants"]) == 2
@@ -87,6 +90,7 @@ def reset_room(room):
             "name": room["players"][number]["name"],
             "keys": set(),
             "trails": [],
+            "trail_updates": [],
             "last_trail": [position[0], position[2]],
             "jump_until": 0.0,
             "jump_ready_at": 0.0,
@@ -105,6 +109,7 @@ def state_payload(room):
             if room["countdown_deadline"] is not None
             else None
         ),
+        "trails_reset": room["trails_reset"],
         "winner": room["winner"],
         "players": {},
     }
@@ -125,7 +130,7 @@ def state_payload(room):
                 else 0.0
             ),
             "boosting": player["boost_until"] > now,
-            "trails": player["trails"],
+            "trail_updates": list(player["trail_updates"]),
             "game_over": player["game_over"],
         }
 
@@ -174,6 +179,9 @@ def hit_trail(room, player_number, ignore_recent=0):
 
 async def emit_room_state(room):
     await sio.emit("state", state_payload(room), room=room["id"])
+    room["trails_reset"] = False
+    for player in room["players"].values():
+        player["trail_updates"].clear()
 
 
 def valid_player_name(name):
@@ -405,7 +413,9 @@ async def game_loop():
                 last_x, last_z = player["last_trail"]
 
                 if math.hypot(end_x - last_x, end_z - last_z) >= 0.15:
-                    player["trails"].append([last_x, last_z, end_x, end_z])
+                    segment = [last_x, last_z, end_x, end_z]
+                    player["trails"].append(segment)
+                    player["trail_updates"].append(segment)
                     del player["trails"][:-MAX_TRAIL_SEGMENTS]
                     player["last_trail"] = [end_x, end_z]
 
