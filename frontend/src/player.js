@@ -136,7 +136,7 @@ export class Player {
     }
 
     syncTrail(segments, reset = false) {
-        let changed = false;
+        const updatedIndices = [];
         if (reset) {
             this.trailMesh.count = 0;
             this.trailWriteIndex = 0;
@@ -169,12 +169,30 @@ export class Player {
             this.trailTransform.scale.set(1, 1, distance);
             this.trailTransform.updateMatrix();
             this.trailMesh.setMatrixAt(index, this.trailTransform.matrix);
-            this.trailMesh.instanceMatrix.addUpdateRange(index * 16, 16);
-            changed = true;
+            updatedIndices.push(index);
         }
-        if (changed) {
-            this.trailMesh.instanceMatrix.needsUpdate = true;
+        if (updatedIndices.length === 0) return;
+
+        updatedIndices.sort((a, b) => a - b);
+        const instanceMatrix = this.trailMesh.instanceMatrix;
+
+        let rangeStart = updatedIndices[0];
+        let previousIndex = rangeStart;
+        for (let index = 1; index <= updatedIndices.length; index++) {
+            const currentIndex = updatedIndices[index];
+            if (currentIndex === previousIndex + 1) {
+                previousIndex = currentIndex;
+                continue;
+            }
+
+            instanceMatrix.addUpdateRange(
+                rangeStart * 16,
+                (previousIndex - rangeStart + 1) * 16
+            );
+            rangeStart = currentIndex;
+            previousIndex = currentIndex;
         }
+        instanceMatrix.needsUpdate = true;
     }
 
     reset(x = 0, z = 0) {

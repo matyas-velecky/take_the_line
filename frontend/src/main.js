@@ -18,7 +18,8 @@ const cameraClock = new THREE.Clock();
 const cameraPosition = new THREE.Vector3();
 const cameraLookTarget = new THREE.Vector3();
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 

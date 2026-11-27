@@ -4,6 +4,7 @@ import re
 import secrets
 import string
 import time
+from collections import deque
 from pathlib import Path
 
 import socketio
@@ -45,7 +46,7 @@ def new_player(number, color):
         "color": color,
         "name": f"Player {number}",
         "keys": set(),
-        "trails": [],
+        "trails": deque(maxlen=MAX_TRAIL_SEGMENTS),
         "trail_updates": [],
         "last_trail": [x, 0.0],
         "jump_until": 0.0,
@@ -90,7 +91,7 @@ def reset_room(room):
             "color": color,
             "name": room["players"][number]["name"],
             "keys": set(),
-            "trails": [],
+            "trails": deque(maxlen=MAX_TRAIL_SEGMENTS),
             "trail_updates": [],
             "last_trail": [position[0], position[2]],
             "jump_until": 0.0,
@@ -138,41 +139,58 @@ def state_payload(room):
     return payload
 
 
-def point_segment_distance(px, pz, start, end):
-    ax, az = start
-    bx, bz = end
+def point_segment_distance_squared(px, pz, segment):
+    ax, az, bx, bz = segment
     dx = bx - ax
     dz = bz - az
     length_squared = dx * dx + dz * dz
 
     if length_squared == 0:
-        return math.hypot(px - ax, pz - az)
+        distance_x = px - ax
+        distance_z = pz - az
+        return distance_x * distance_x + distance_z * distance_z
 
     t = max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / length_squared))
     closest_x = ax + t * dx
     closest_z = az + t * dz
-    return math.hypot(px - closest_x, pz - closest_z)
+    distance_x = px - closest_x
+    distance_z = pz - closest_z
+    return distance_x * distance_x + distance_z * distance_z
 
 
 def hit_trail(room, player_number, ignore_recent=0):
     position = room["players"][player_number]["position"]
+    px, pz = position[0], position[2]
+    collision_distance_squared = 1.4 * 1.4
 
     for owner_number, player in room["players"].items():
         if owner_number not in room["participants"]:
             continue
         segments = player["trails"]
+        segment_limit = (
+            len(segments) - ignore_recent
+            if owner_number == player_number and ignore_recent
+            else len(segments)
+        )
 
-        if owner_number == player_number and ignore_recent:
-            segments = segments[:-ignore_recent]
+        for index, segment in enumerate(segments):
+            if index >= segment_limit:
+                break
 
-        for segment in segments:
-            distance = point_segment_distance(
-                position[0],
-                position[2],
-                (segment[0], segment[1]),
-                (segment[2], segment[3]),
-            )
-            if distance < 1.4:
+            ax, az, bx, bz = segment
+            min_x, max_x = min(ax, bx) - 1.4, max(ax, bx) + 1.4
+            min_z, max_z = min(az, bz) - 1.4, max(az, bz) + 1.4
+            if (
+                px < min_x
+                or px > max_x
+                or pz < min_z
+                or pz > max_z
+            ):
+                continue
+            if (
+                point_segment_distance_squared(px, pz, segment)
+                < collision_distance_squared
+            ):
                 return True
 
     return False
@@ -421,7 +439,6 @@ async def game_loop():
                     segment = [last_x, last_z, end_x, end_z]
                     player["trails"].append(segment)
                     player["trail_updates"].append(segment)
-                    del player["trails"][:-MAX_TRAIL_SEGMENTS]
                     player["last_trail"] = [end_x, end_z]
 
             positions = {
@@ -436,17 +453,21 @@ async def game_loop():
                 room["winner"] = "Draw"
                 room["players"][1]["game_over"] = True
                 room["players"][2]["game_over"] = True
-            else:
+            elif should_emit_state:
                 player_one_hit = (
                     room["players"][1]["jump_until"] <= time.monotonic()
                     and hit_trail(
-                        room, 1, ignore_recent=len(room["players"][1]["trails"][-12:])
+                        room,
+                        1,
+                        ignore_recent=min(12, len(room["players"][1]["trails"])),
                     )
                 )
                 player_two_hit = (
                     room["players"][2]["jump_until"] <= time.monotonic()
                     and hit_trail(
-                        room, 2, ignore_recent=len(room["players"][2]["trails"][-12:])
+                        room,
+                        2,
+                        ignore_recent=min(12, len(room["players"][2]["trails"])),
                     )
                 )
 
