@@ -44,7 +44,7 @@ export class Player {
         const playerPosition = this.mesh.position;
         const playerRadius = 1;
         const trailRadius = 0.2;
-        const recentSegmentCount = 12;
+        const recentSegmentCount = 120;
 
         for (let index = 0; index < trailGroup.children.length; index++) {
             if (

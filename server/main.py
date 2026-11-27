@@ -1,6 +1,8 @@
 import asyncio
 import math
 import re
+import secrets
+import string
 import time
 from pathlib import Path
 
@@ -22,7 +24,11 @@ TICK_RATE = 60
 sid_to_player = {}
 sid_to_room = {}
 rooms = {}
-next_room_id = 1
+ROOM_CODE_LENGTH = 6
+ROOM_CODE_CHARACTERS = string.ascii_uppercase + string.digits
+ALLOWED_KEYS = frozenset(
+    ("a", "d", "w", "s", "arrowleft", "arrowright", "arrowup", "arrowdown")
+)
 
 
 def new_player(number, color):
@@ -32,6 +38,7 @@ def new_player(number, color):
         "position": [x, 0.5, 0.0],
         "heading": heading,
         "color": color,
+        "name": f"Player {number}",
         "keys": set(),
         "trails": [],
         "last_trail": [x, 0.0],
@@ -70,6 +77,7 @@ def reset_room(room):
             "position": position,
             "heading": heading,
             "color": color,
+            "name": room["players"][number]["name"],
             "keys": set(),
             "trails": [],
             "last_trail": [position[0], position[2]],
@@ -95,6 +103,7 @@ def state_payload(room):
             "position": player["position"],
             "heading": player["heading"],
             "color": player["color"],
+            "name": player["name"],
             "trails": player["trails"],
             "game_over": player["game_over"],
         }
@@ -146,6 +155,34 @@ async def emit_room_state(room):
     await sio.emit("state", state_payload(room), room=room["id"])
 
 
+def valid_player_name(name):
+    return isinstance(name, str) and 1 <= len(name.strip()) <= 20
+
+
+async def assign_to_room(sid, room, name):
+    player_number = next(
+        number for number in (1, 2) if number not in room["participants"]
+    )
+    room["participants"][player_number] = sid
+    room["players"][player_number]["name"] = name.strip()
+    sid_to_player[sid] = player_number
+    sid_to_room[sid] = room["id"]
+    await sio.enter_room(sid, room["id"])
+    if len(room["participants"]) == 2:
+        room["countdown_deadline"] = time.monotonic() + COUNTDOWN_SECONDS
+
+    await sio.emit(
+        "assigned",
+        {"player": player_number, "room": room["id"], "name": name.strip()},
+        room=sid,
+    )
+    await emit_room_state(room)
+
+
+async def emit_room_error(sid, message):
+    await sio.emit("room_error", {"message": message}, room=sid)
+
+
 @fastapi_app.get("/")
 def home():
     return FileResponse(frontend_dist / "index.html")
@@ -158,33 +195,55 @@ def health():
 
 @sio.event
 async def connect(sid, environ):
-    global next_room_id
-    room = next(
-        (candidate for candidate in rooms.values() if len(candidate["participants"]) < 2),
-        None,
+    return None
+
+
+@sio.event
+async def create_room(sid, data):
+    if sid in sid_to_room:
+        await emit_room_error(sid, "You are already in a room.")
+        return
+    name = data.get("name") if isinstance(data, dict) else None
+    if not valid_player_name(name):
+        await emit_room_error(sid, "Enter a name between 1 and 20 characters.")
+        return
+
+    room_code = "".join(
+        secrets.choice(ROOM_CODE_CHARACTERS) for _ in range(ROOM_CODE_LENGTH)
     )
+    while room_code in rooms:
+        room_code = "".join(
+            secrets.choice(ROOM_CODE_CHARACTERS) for _ in range(ROOM_CODE_LENGTH)
+        )
+    room = new_room(room_code)
+    rooms[room_code] = room
+    await assign_to_room(sid, room, name)
+
+
+@sio.event
+async def join_room(sid, data):
+    if sid in sid_to_room:
+        await emit_room_error(sid, "You are already in a room.")
+        return
+    name = data.get("name") if isinstance(data, dict) else None
+    room_code = data.get("code", "") if isinstance(data, dict) else ""
+    if not valid_player_name(name):
+        await emit_room_error(sid, "Enter a name between 1 and 20 characters.")
+        return
+    if not isinstance(room_code, str) or re.fullmatch(
+        rf"[A-Z0-9]{{{ROOM_CODE_LENGTH}}}", room_code.upper()
+    ) is None:
+        await emit_room_error(sid, "Enter a valid 6-character room code.")
+        return
+
+    room = rooms.get(room_code.upper())
     if room is None:
-        room_id = str(next_room_id)
-        next_room_id += 1
-        room = new_room(room_id)
-        rooms[room_id] = room
-
-    player_number = next(
-        number for number in (1, 2) if number not in room["participants"]
-    )
-    sid_to_player[sid] = player_number
-    sid_to_room[sid] = room["id"]
-    room["participants"][player_number] = sid
-    await sio.enter_room(sid, room["id"])
-    if len(room["participants"]) == 2:
-        room["countdown_deadline"] = time.monotonic() + COUNTDOWN_SECONDS
-
-    await sio.emit(
-        "assigned",
-        {"player": player_number, "room": room["id"]},
-        room=sid,
-    )
-    await emit_room_state(room)
+        await emit_room_error(sid, "That room code was not found.")
+        return
+    if len(room["participants"]) >= 2:
+        await emit_room_error(sid, "That room is full.")
+        return
+    await assign_to_room(sid, room, name)
 
 
 @sio.event
@@ -209,7 +268,13 @@ async def input(sid, data):
     if player_number is None or room is None:
         return
 
-    room["players"][player_number]["keys"] = set(data.get("keys", []))
+    keys = data.get("keys", []) if isinstance(data, dict) else []
+    if isinstance(keys, list):
+        room["players"][player_number]["keys"] = {
+            key
+            for key in keys
+            if isinstance(key, str) and key in ALLOWED_KEYS
+        }
 
 
 @sio.event
@@ -317,10 +382,10 @@ async def game_loop():
                 )
 
                 if player_one_hit:
-                    room["winner"] = "Player 2"
+                    room["winner"] = room["players"][2]["name"]
                     room["players"][1]["game_over"] = True
                 if player_two_hit:
-                    room["winner"] = "Player 1"
+                    room["winner"] = room["players"][1]["name"]
                     room["players"][2]["game_over"] = True
 
             await emit_room_state(room)

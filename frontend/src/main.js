@@ -80,12 +80,77 @@ settingsPanel.style.cssText = `
 `;
 settingsPanel.innerHTML = `
     <strong id="room-status">Finding an opponent...</strong>
+    <span id="room-code-display"></span>
+    <button id="copy-room-code" type="button" style="display: none">Copy room code</button>
     <label style="display: flex; align-items: center; gap: 10px">
         Player color
         <input id="player-color" type="color" value="#ff0000" aria-label="Player color">
     </label>
 `;
 document.body.appendChild(settingsPanel);
+
+const lobbyPanel = document.createElement('div');
+lobbyPanel.style.cssText = `
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(5, 5, 16, 0.94);
+    color: white;
+    font: 16px sans-serif;
+    z-index: 30;
+`;
+lobbyPanel.innerHTML = `
+    <div style="display: grid; gap: 12px; width: min(320px, calc(100vw - 40px))">
+        <h1 style="margin: 0; text-align: center">Private match</h1>
+        <label style="display: grid; gap: 6px">
+            Your name
+            <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Enter your name">
+        </label>
+        <button id="create-room" type="button">Create private room</button>
+        <label style="display: grid; gap: 6px">
+            Room code
+            <input id="join-room-code" maxlength="6" autocomplete="off" placeholder="6-character code">
+        </label>
+        <button id="join-room" type="button">Join room</button>
+        <p id="lobby-error" role="status" style="min-height: 1.2em; margin: 0; color: #ff8c8c"></p>
+    </div>
+`;
+document.body.appendChild(lobbyPanel);
+
+const nameInput = document.querySelector('#player-name');
+nameInput.value = localStorage.getItem('playerName') || '';
+const createRoomButton = document.querySelector('#create-room');
+const joinRoomButton = document.querySelector('#join-room');
+const lobbyError = document.querySelector('#lobby-error');
+
+function requestRoom(eventName, payload) {
+    const name = nameInput.value.trim();
+    if (!name || name.length > 20) {
+        lobbyError.textContent = 'Enter a name between 1 and 20 characters.';
+        return;
+    }
+
+    localStorage.setItem('playerName', name);
+    lobbyError.textContent = 'Connecting to room...';
+    createRoomButton.disabled = true;
+    joinRoomButton.disabled = true;
+    socket.emit(eventName, { ...payload, name });
+}
+
+createRoomButton.addEventListener('click', () => {
+    requestRoom('create_room', {});
+});
+
+joinRoomButton.addEventListener('click', () => {
+    requestRoom('join_room', {
+        code: document.querySelector('#join-room-code').value.trim().toUpperCase(),
+    });
+});
+
+document.querySelector('#join-room-code').addEventListener('input', (event) => {
+    event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+});
 
 const colorInput = document.querySelector('#player-color');
 let storedColor = localStorage.getItem('playerColor');
@@ -127,16 +192,36 @@ const matchStatusElements = {
     roomStatus: document.querySelector('#room-status'),
 };
 
-socket.on('assigned', ({ player, room }) => {
+socket.on('room_error', ({ message }) => {
+    lobbyError.textContent = message;
+    createRoomButton.disabled = false;
+    joinRoomButton.disabled = false;
+});
+
+socket.on('assigned', ({ player, room, name }) => {
     localPlayerNumber = player;
     localRoomId = room;
+    lobbyPanel.style.display = 'none';
+    createRoomButton.disabled = false;
+    joinRoomButton.disabled = false;
     const localPlayer = localPlayerNumber === 1 ? playerOne : playerTwo;
     const selectedColor = storedColor || (player === 1 ? '#ff0000' : '#00ffff');
     colorInput.value = selectedColor;
     localPlayer.setColor(selectedColor);
     socket.emit('set_color', { color: selectedColor });
-    document.querySelector('#room-status').textContent =
-        `Room ${localRoomId} · Player ${localPlayerNumber}`;
+    document.querySelector('#room-status').textContent = `${name} · Room ${localRoomId}`;
+    document.querySelector('#room-code-display').textContent = `Code: ${localRoomId}`;
+    document.querySelector('#copy-room-code').style.display = 'block';
+});
+
+document.querySelector('#copy-room-code').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(localRoomId);
+        document.querySelector('#copy-room-code').textContent = 'Copied!';
+    } catch {
+        document.querySelector('#room-code-display').textContent =
+            `Room code: ${localRoomId} (copy it to share)`;
+    }
 });
 
 socket.on('state', (state) => {
@@ -158,7 +243,7 @@ socket.on('disconnect', () => {
 
 window.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
-    if (["a", "d", "arrowleft", "arrowright"].includes(key)) {
+    if (["a", "d", "w", "s", "arrowleft", "arrowright", "arrowup", "arrowdown"].includes(key)) {
         pressedKeys.add(key);
         socket.emit('input', { keys: Array.from(pressedKeys) });
     }
