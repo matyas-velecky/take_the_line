@@ -26,6 +26,10 @@ STATE_UPDATE_RATE = 30
 JUMP_DURATION_SECONDS = 0.75
 JUMP_COOLDOWN_SECONDS = 1.5
 BOOST_DURATION_SECONDS = 1.0
+BOARD_SIZE = 75.0
+BOARD_HALF = BOARD_SIZE / 2
+PLAYER_SURFACE_OFFSET = 1.0
+SURFACE_LEVEL = BOARD_HALF + PLAYER_SURFACE_OFFSET
 
 sid_to_player = {}
 sid_to_room = {}
@@ -39,16 +43,16 @@ ALLOWED_KEYS = frozenset(
 
 def new_player(number, color):
     x = -20.0 if number == 1 else 20.0
-    heading = math.pi / 2 if number == 1 else -math.pi / 2
     return {
-        "position": [x, 0.5, 0.0],
-        "heading": heading,
+        "position": [x, SURFACE_LEVEL, 0.0],
+        "normal": [0.0, 1.0, 0.0],
+        "forward": [1.0 if number == 1 else -1.0, 0.0, 0.0],
         "color": color,
         "name": f"Player {number}",
         "keys": set(),
         "trails": deque(maxlen=MAX_TRAIL_SEGMENTS),
         "trail_updates": [],
-        "last_trail": [x, 0.0],
+        "last_trail": [x, SURFACE_LEVEL, 0.0],
         "jump_until": 0.0,
         "jump_ready_at": 0.0,
         "boost_until": 0.0,
@@ -80,20 +84,21 @@ def reset_room(room):
         if len(room["participants"]) == 2
         else None
     )
-    for number, position, heading in (
-        (1, [-20.0, 0.5, 0.0], math.pi / 2),
-        (2, [20.0, 0.5, 0.0], -math.pi / 2),
+    for number, position, forward in (
+        (1, [-20.0, SURFACE_LEVEL, 0.0], [1.0, 0.0, 0.0]),
+        (2, [20.0, SURFACE_LEVEL, 0.0], [-1.0, 0.0, 0.0]),
     ):
         color = room["players"][number]["color"]
         room["players"][number] = {
             "position": position,
-            "heading": heading,
+            "normal": [0.0, 1.0, 0.0],
+            "forward": forward,
             "color": color,
             "name": room["players"][number]["name"],
             "keys": set(),
             "trails": deque(maxlen=MAX_TRAIL_SEGMENTS),
             "trail_updates": [],
-            "last_trail": [position[0], position[2]],
+            "last_trail": position.copy(),
             "jump_until": 0.0,
             "jump_ready_at": 0.0,
             "boost_until": 0.0,
@@ -119,7 +124,8 @@ def state_payload(room):
     for number, player in room["players"].items():
         payload["players"][str(number)] = {
             "position": player["position"],
-            "heading": player["heading"],
+            "normal": player["normal"],
+            "forward": player["forward"],
             "color": player["color"],
             "name": player["name"],
             "jump_height": (
@@ -139,28 +145,40 @@ def state_payload(room):
     return payload
 
 
-def point_segment_distance_squared(px, pz, segment):
-    ax, az, bx, bz = segment
+def point_segment_distance_squared(position, segment):
+    ax, ay, az, bx, by, bz = segment[:6]
+    px, py, pz = position
     dx = bx - ax
+    dy = by - ay
     dz = bz - az
-    length_squared = dx * dx + dz * dz
+    length_squared = dx * dx + dy * dy + dz * dz
 
     if length_squared == 0:
         distance_x = px - ax
+        distance_y = py - ay
         distance_z = pz - az
-        return distance_x * distance_x + distance_z * distance_z
+        return distance_x * distance_x + distance_y * distance_y + distance_z * distance_z
 
-    t = max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / length_squared))
+    t = max(
+        0.0,
+        min(
+            1.0,
+            ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz)
+            / length_squared,
+        ),
+    )
     closest_x = ax + t * dx
+    closest_y = ay + t * dy
     closest_z = az + t * dz
     distance_x = px - closest_x
+    distance_y = py - closest_y
     distance_z = pz - closest_z
-    return distance_x * distance_x + distance_z * distance_z
+    return distance_x * distance_x + distance_y * distance_y + distance_z * distance_z
 
 
 def hit_trail(room, player_number, ignore_recent=0):
     position = room["players"][player_number]["position"]
-    px, pz = position[0], position[2]
+    px, py, pz = position
     collision_distance_squared = 1.4 * 1.4
 
     for owner_number, player in room["players"].items():
@@ -177,23 +195,105 @@ def hit_trail(room, player_number, ignore_recent=0):
             if index >= segment_limit:
                 break
 
-            ax, az, bx, bz = segment
+            ax, ay, az, bx, by, bz = segment[:6]
             min_x, max_x = min(ax, bx) - 1.4, max(ax, bx) + 1.4
+            min_y, max_y = min(ay, by) - 1.4, max(ay, by) + 1.4
             min_z, max_z = min(az, bz) - 1.4, max(az, bz) + 1.4
             if (
                 px < min_x
                 or px > max_x
+                or py < min_y
+                or py > max_y
                 or pz < min_z
                 or pz > max_z
             ):
                 continue
             if (
-                point_segment_distance_squared(px, pz, segment)
+                point_segment_distance_squared(position, segment)
                 < collision_distance_squared
             ):
                 return True
 
     return False
+
+
+def dot(left, right):
+    return sum(a * b for a, b in zip(left, right))
+
+
+def cross(left, right):
+    return [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+
+
+def rotate_vector(vector, axis, angle):
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    axis_cross_vector = cross(axis, vector)
+    axis_dot_vector = dot(axis, vector)
+    return [
+        vector[index] * cosine
+        + axis_cross_vector[index] * sine
+        + axis[index] * axis_dot_vector * (1 - cosine)
+        for index in range(3)
+    ]
+
+
+def append_trail_segment(player, end, normal):
+    start = player["last_trail"]
+    distance_squared = sum((end[index] - start[index]) ** 2 for index in range(3))
+    if distance_squared < 1e-8:
+        return
+    segment = [*start, *end, *normal]
+    player["trails"].append(segment)
+    player["trail_updates"].append(segment)
+    player["last_trail"] = end.copy()
+
+
+def move_on_cube(player, distance):
+    position = player["position"]
+    normal = player["normal"]
+    forward = player["forward"]
+    remaining = distance
+    crossings = 0
+
+    while remaining > 1e-8 and crossings < 3:
+        normal_axis = max(range(3), key=lambda axis: abs(normal[axis]))
+        crossing_axis = None
+        crossing_distance = remaining
+
+        for axis in range(3):
+            if axis == normal_axis or abs(forward[axis]) < 1e-8:
+                continue
+            boundary = SURFACE_LEVEL if forward[axis] > 0 else -SURFACE_LEVEL
+            axis_distance = (boundary - position[axis]) / forward[axis]
+            if -1e-8 <= axis_distance <= crossing_distance:
+                crossing_axis = axis
+                crossing_distance = max(0.0, axis_distance)
+
+        for axis in range(3):
+            position[axis] += forward[axis] * crossing_distance
+        remaining -= crossing_distance
+
+        if crossing_axis is None:
+            break
+
+        old_normal = normal.copy()
+        crossing_sign = 1.0 if position[crossing_axis] >= 0 else -1.0
+        new_normal = [0.0, 0.0, 0.0]
+        new_normal[crossing_axis] = crossing_sign
+        rotation_axis = cross(old_normal, new_normal)
+        forward[:] = rotate_vector(forward, rotation_axis, math.pi / 2)
+        normal[:] = new_normal
+        position[crossing_axis] = crossing_sign * SURFACE_LEVEL
+        position[normal_axis] = old_normal[normal_axis] * SURFACE_LEVEL
+        append_trail_segment(player, position, old_normal)
+        crossings += 1
+
+    return crossings
 
 
 async def emit_room_state(room):
@@ -398,58 +498,53 @@ async def game_loop():
                     await emit_room_state(room)
                 continue
 
+            now = time.monotonic()
             for number, player in room["players"].items():
                 if number not in room["participants"] or player["game_over"]:
                     continue
 
                 keys = player["keys"]
-                turn_direction = int(bool(keys & {"a", "arrowleft"})) - int(
-                    bool(keys & {"d", "arrowright"})
-                )
+                turn_direction = int(bool(keys & {"a", "arrowleft"})) - int(bool(keys & {"d", "arrowright"}))
+                normal = player["normal"]
+                forward = player["forward"]
                 if turn_direction:
-                    player["heading"] += turn_direction * TURN_SPEED * delta
+                    player["forward"] = rotate_vector(
+                        forward, normal, turn_direction * TURN_SPEED * delta
+                    )
                 else:
                     move_z = int(bool(keys & {"s", "arrowdown"})) - int(
                         bool(keys & {"w", "arrowup"})
                     )
                     if move_z:
-                        target_heading = math.pi if move_z > 0 else 0
-                        heading_difference = (
-                            target_heading - player["heading"] + math.pi
-                        ) % (2 * math.pi) - math.pi
+                        north = [0.0, 1.0, 0.0]
+                        if abs(dot(normal, north)) > 0.9:
+                            north = [0.0, 0.0, 1.0]
+                        target_forward = [
+                            component * (-1 if move_z > 0 else 1)
+                            for component in north
+                        ]
+                        turn_angle = math.atan2(
+                            dot(normal, cross(forward, target_forward)),
+                            dot(forward, target_forward),
+                        )
                         turn_amount = max(
                             -TURN_SPEED * delta,
-                            min(TURN_SPEED * delta, heading_difference),
+                            min(TURN_SPEED * delta, turn_angle),
                         )
-                        player["heading"] += turn_amount
+                        player["forward"] = rotate_vector(
+                            forward, normal, turn_amount
+                        )
 
-                now = time.monotonic()
                 speed = PLAYER_SPEED * (2 if player["boost_until"] > now else 1)
-                player["position"][0] += math.sin(player["heading"]) * speed * delta
-                player["position"][2] += math.cos(player["heading"]) * speed * delta
+                move_on_cube(player, speed * delta)
+                append_trail_segment(player, player["position"], player["normal"])
 
-                player["position"][0] = max(-49, min(49, player["position"][0]))
-                player["position"][2] = max(-49, min(49, player["position"][2]))
-
-                end_x = player["position"][0]
-                end_z = player["position"][2]
-                last_x, last_z = player["last_trail"]
-
-                if math.hypot(end_x - last_x, end_z - last_z) >= 0.15:
-                    segment = [last_x, last_z, end_x, end_z]
-                    player["trails"].append(segment)
-                    player["trail_updates"].append(segment)
-                    player["last_trail"] = [end_x, end_z]
-
-            positions = {
-                number: player["position"]
-                for number, player in room["players"].items()
-            }
-
-            if math.hypot(
-                positions[1][0] - positions[2][0],
-                positions[1][2] - positions[2][2],
-            ) < 2:
+            position_one = room["players"][1]["position"]
+            position_two = room["players"][2]["position"]
+            if sum(
+                (position_one[index] - position_two[index]) ** 2
+                for index in range(3)
+            ) < 4:
                 room["winner"] = "Draw"
                 room["players"][1]["game_over"] = True
                 room["players"][2]["game_over"] = True

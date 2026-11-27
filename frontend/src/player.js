@@ -1,34 +1,37 @@
 import * as THREE from "three";
 
+import { BOARD_HALF } from "./floor";
+
 // Keep in sync with MAX_TRAIL_SEGMENTS in server/main.py.
 const MAX_TRAIL_SEGMENTS = 1200;
 
+function orientationQuaternion(forwardValues, normalValues) {
+    const forward = new THREE.Vector3(...forwardValues).normalize();
+    const normal = new THREE.Vector3(...normalValues).normalize();
+    const right = new THREE.Vector3().crossVectors(normal, forward).normalize();
+    const basis = new THREE.Matrix4().makeBasis(right, normal, forward);
+    return new THREE.Quaternion().setFromRotationMatrix(basis);
+}
+
 export class Player {
-    constructor(x, y, z, col, controls = ["a", "d", "w", "s"]) {
+    constructor(x, y, z, col) {
         const geometry = new THREE.BoxGeometry(2, 2, 2);
         const material = new THREE.MeshBasicMaterial({ color: col });
 
         this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.position.set(x, y + 0.5, z);
-        this.speed = 15;
-        this.turnSpeed = 2.5;
-        this.heading = x <= 0 ? Math.PI / 2 : -Math.PI / 2;
-        this.mesh.rotation.y = this.heading;
+        this.mesh.position.set(x, y, z);
+        this.surfaceNormal = new THREE.Vector3(0, 1, 0);
+        this.forward = new THREE.Vector3(x <= 0 ? 1 : -1, 0, 0);
         this.targetPosition = this.mesh.position.clone();
-        this.targetHeading = this.heading;
+        this.targetNormal = this.surfaceNormal.clone();
+        this.targetForward = this.forward.clone();
+        this.targetQuaternion = orientationQuaternion(
+            this.targetForward.toArray(),
+            this.targetNormal.toArray()
+        );
         this.hasServerState = false;
-        this.keys = new Set();
-        this.controls = controls;
 
-        window.addEventListener("keydown", (event) => {
-            this.keys.add(event.key.toLowerCase());
-        });
-
-        window.addEventListener("keyup", (event) => {
-            this.keys.delete(event.key.toLowerCase());
-        });
         this.trailColor = col;
-        this.lastTrailPosition = this.mesh.position.clone();
         this.trailGroup = new THREE.Group();
         this.trailGeometry = new THREE.BoxGeometry(0.4, 0.15, 1);
         this.trailMaterial = new THREE.MeshBasicMaterial({ color: col });
@@ -52,22 +55,23 @@ export class Player {
         this.trailMaterial.color.set(color);
     }
 
-    check() {
-        this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -49, 49);
-        this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -49, 49);
-    }
-
-    setServerState(position, heading, jumpHeight) {
+    setServerState(position, forward, normal, jumpHeight) {
+        this.targetNormal.set(...normal).normalize();
+        this.targetForward.set(...forward).normalize();
         this.targetPosition.set(
-            position[0],
-            position[1] + jumpHeight,
-            position[2]
+            position[0] + normal[0] * jumpHeight,
+            position[1] + normal[1] * jumpHeight,
+            position[2] + normal[2] * jumpHeight
         );
-        this.targetHeading = heading;
+        this.targetQuaternion.copy(
+            orientationQuaternion(forward, normal)
+        );
 
         if (!this.hasServerState) {
             this.mesh.position.copy(this.targetPosition);
-            this.mesh.rotation.y = heading;
+            this.mesh.quaternion.copy(this.targetQuaternion);
+            this.surfaceNormal.copy(this.targetNormal);
+            this.forward.copy(this.targetForward);
             this.hasServerState = true;
         }
     }
@@ -76,63 +80,16 @@ export class Player {
         if (!this.hasServerState) return;
 
         const blend = 1 - Math.exp(-18 * delta);
-        this.mesh.position.lerp(this.targetPosition, blend);
-        const headingDifference = Math.atan2(
-            Math.sin(this.targetHeading - this.mesh.rotation.y),
-            Math.cos(this.targetHeading - this.mesh.rotation.y)
-        );
-        this.mesh.rotation.y += headingDifference * blend;
-    }
-
-    collidesWithTrail(trailGroup, ignoreOwnRecentSegments = false) {
-        const playerPosition = this.mesh.position;
-        const playerRadius = 1;
-        const trailRadius = 0.2;
-        const recentSegmentCount = 12;
-
-        for (let index = 0; index < trailGroup.children.length; index++) {
-            if (
-                ignoreOwnRecentSegments &&
-                index >= trailGroup.children.length - recentSegmentCount
-            ) {
-                continue;
-            }
-
-            const segment = trailGroup.children[index];
-            const segmentLength = segment.geometry.parameters.depth;
-            const direction = new THREE.Vector3(0, 0, 1)
-                .applyQuaternion(segment.quaternion);
-
-            const start = segment.position.clone().addScaledVector(direction, -segmentLength / 2);
-            const end = segment.position.clone().addScaledVector(direction, segmentLength / 2);
-
-            const ax = start.x;
-            const az = start.z;
-            const bx = end.x;
-            const bz = end.z;
-            const px = playerPosition.x;
-            const pz = playerPosition.z;
-
-            const dx = bx - ax;
-            const dz = bz - az;
-            const segmentLengthSquared = dx * dx + dz * dz;
-
-            if (segmentLengthSquared === 0) continue;
-
-            const distanceAlongSegment =
-                ((px - ax) * dx + (pz - az) * dz) / segmentLengthSquared;
-            const t = THREE.MathUtils.clamp(distanceAlongSegment, 0, 1);
-
-            const closestX = ax + t * dx;
-            const closestZ = az + t * dz;
-            const distance = Math.hypot(px - closestX, pz - closestZ);
-
-            if (distance < playerRadius + trailRadius) {
-                return true;
-            }
+        const crossedFace = this.surfaceNormal.dot(this.targetNormal) < 0.999;
+        if (crossedFace) {
+            this.mesh.position.copy(this.targetPosition);
+            this.surfaceNormal.copy(this.targetNormal);
+        } else {
+            this.mesh.position.lerp(this.targetPosition, blend);
         }
 
-        return false;
+        this.forward.lerp(this.targetForward, blend).normalize();
+        this.mesh.quaternion.slerp(this.targetQuaternion, blend);
     }
 
     syncTrail(segments, reset = false) {
@@ -142,11 +99,20 @@ export class Player {
             this.trailWriteIndex = 0;
         }
 
-        for (const [startX, startZ, endX, endZ] of segments) {
-            const deltaX = endX - startX;
-            const deltaZ = endZ - startZ;
-            const distance = Math.hypot(deltaX, deltaZ);
-            if (distance < 0.15) continue;
+        for (const segment of segments) {
+            const [startX, startY, startZ, endX, endY, endZ, normalX, normalY, normalZ] = segment;
+            const direction = new THREE.Vector3(
+                endX - startX,
+                endY - startY,
+                endZ - startZ
+            );
+            const distance = direction.length();
+            if (distance < 0.0001) continue;
+            direction.divideScalar(distance);
+
+            const normal = new THREE.Vector3(normalX, normalY, normalZ);
+            const right = new THREE.Vector3().crossVectors(normal, direction).normalize();
+            const basis = new THREE.Matrix4().makeBasis(right, normal, direction);
 
             let index;
             if (this.trailMesh.count < MAX_TRAIL_SEGMENTS) {
@@ -161,11 +127,11 @@ export class Player {
             }
 
             this.trailTransform.position.set(
-                (startX + endX) / 2,
-                0.08,
-                (startZ + endZ) / 2
+                (startX + endX) / 2 - normalX * 0.92,
+                (startY + endY) / 2 - normalY * 0.92,
+                (startZ + endZ) / 2 - normalZ * 0.92
             );
-            this.trailTransform.rotation.set(0, Math.atan2(deltaX, deltaZ), 0);
+            this.trailTransform.quaternion.setFromRotationMatrix(basis);
             this.trailTransform.scale.set(1, 1, distance);
             this.trailTransform.updateMatrix();
             this.trailMesh.setMatrixAt(index, this.trailTransform.matrix);
@@ -175,7 +141,6 @@ export class Player {
 
         updatedIndices.sort((a, b) => a - b);
         const instanceMatrix = this.trailMesh.instanceMatrix;
-
         let rangeStart = updatedIndices[0];
         let previousIndex = rangeStart;
         for (let index = 1; index <= updatedIndices.length; index++) {
@@ -195,64 +160,19 @@ export class Player {
         instanceMatrix.needsUpdate = true;
     }
 
-    reset(x = 0, z = 0) {
-        this.mesh.position.set(x, 0.5, z);
-        this.heading = x <= 0 ? Math.PI / 2 : -Math.PI / 2;
-        this.mesh.rotation.set(0, this.heading, 0);
-        this.lastTrailPosition.copy(this.mesh.position);
+    reset(x = -20, z = 0) {
+        this.mesh.position.set(x, BOARD_HALF + 1, z);
+        this.surfaceNormal.set(0, 1, 0);
+        this.forward.set(x <= 0 ? 1 : -1, 0, 0);
+        this.mesh.quaternion.copy(
+            orientationQuaternion(this.forward.toArray(), this.surfaceNormal.toArray())
+        );
+        this.targetPosition.copy(this.mesh.position);
+        this.targetNormal.copy(this.surfaceNormal);
+        this.targetForward.copy(this.forward);
         this.trailMesh.count = 0;
         this.trailWriteIndex = 0;
         this.trailMesh.instanceMatrix.needsUpdate = true;
-        this.keys.clear();
         this.gameOver = false;
-    }
-
-    createTrail() {
-    const start = this.lastTrailPosition;
-    const end = this.mesh.position;
-
-    const distance = start.distanceTo(end);
-
-    if (distance < 0.15) return;
-
-    this.syncTrail([[start.x, start.z, end.x, end.z]]);
-    this.lastTrailPosition.copy(end);
-    }
-
-    update(delta) {
-        if (this.gameOver) return;
-
-        this.check();
-        if (this.gameOver) return;
-
-        const moveX =
-            Number(this.keys.has(this.controls[0]) || this.keys.has("arrowleft")) -
-            Number(this.keys.has(this.controls[1]) || this.keys.has("arrowright"));
-        const moveZ =
-            Number(this.keys.has(this.controls[3]) || this.keys.has("arrowdown")) -
-            Number(this.keys.has(this.controls[2]) || this.keys.has("arrowup"));
-
-        if (moveX) {
-            this.heading += Math.sign(moveX) * this.turnSpeed * delta;
-        } else if (moveZ) {
-            const targetHeading = moveZ > 0 ? Math.PI : 0;
-            const headingDifference = Math.atan2(
-                Math.sin(targetHeading - this.heading),
-                Math.cos(targetHeading - this.heading)
-            );
-            const turnAmount = THREE.MathUtils.clamp(
-                headingDifference,
-                -this.turnSpeed * delta,
-                this.turnSpeed * delta
-            );
-            this.heading += turnAmount;
-        }
-
-        this.mesh.rotation.y = this.heading;
-        this.mesh.position.x += Math.sin(this.heading) * this.speed * delta;
-        this.mesh.position.z += Math.cos(this.heading) * this.speed * delta;
-
-        this.check();
-        this.createTrail();
     }
 }

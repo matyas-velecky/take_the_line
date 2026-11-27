@@ -1,7 +1,7 @@
 
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
-import { makeArenaBorder, makeFloor, makeGrid } from './floor';
+import { BOARD_HALF, makeArenaBorder, makeFloor, makeGrid } from './floor';
 import { Player } from './player';
 import { showMatchStopped, updateMatchStatus } from './functionalities';
 
@@ -25,14 +25,8 @@ document.body.appendChild(renderer.domElement);
 
 const socket = io();
 
-const playerOne = new Player(-20, 0, 0, 0xFF0000);
-const playerTwo = new Player(
-    20,
-    0,
-    0,
-    0x00FFFF,
-    ['arrowleft', 'arrowright', 'arrowup', 'arrowdown']
-);
+const playerOne = new Player(-20, BOARD_HALF + 1, 0, 0xFF0000);
+const playerTwo = new Player(20, BOARD_HALF + 1, 0, 0x00FFFF);
 let localPlayerNumber = null;
 let localRoomId = null;
 let matchInProgress = false;
@@ -134,7 +128,7 @@ lobbyPanel.innerHTML = `
                     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
                 </span>
             </div>
-            <p class="controls-note">Both players can use either key set. Riders move automatically; hold left/right to keep turning, or up/down to steer north/south.</p>
+            <p class="controls-note">Both players can use either key set. Riders move automatically; hold left/right to turn, or up/down to steer across the current face. Cross an edge to ride onto the next face.</p>
             <div class="controls-row action-control">
                 <span>Jump over trails</span>
                 <span class="key-group"><kbd>SPACE</kbd></span>
@@ -237,21 +231,21 @@ function updateDrivingCamera(delta, snap = false) {
     if (localPlayerNumber === null) return;
 
     const localPlayer = localPlayerNumber === 1 ? playerOne : playerTwo;
-    const heading = localPlayer.mesh.rotation.y;
-    const forwardX = Math.sin(heading);
-    const forwardZ = Math.cos(heading);
     const position = localPlayer.mesh.position;
+    const forward = localPlayer.forward;
+    const normal = localPlayer.surfaceNormal;
 
     cameraPosition.set(
-        position.x - forwardX * 15,
-        position.y + 8,
-        position.z - forwardZ * 15
+        position.x - forward.x * 15 + normal.x * 8,
+        position.y - forward.y * 15 + normal.y * 8,
+        position.z - forward.z * 15 + normal.z * 8
     );
     cameraLookTarget.set(
-        position.x + forwardX * 7,
-        position.y + 1,
-        position.z + forwardZ * 7
+        position.x + forward.x * 7 + normal.x,
+        position.y + forward.y * 7 + normal.y,
+        position.z + forward.z * 7 + normal.z
     );
+    camera.up.copy(normal);
 
     if (snap) {
         camera.position.copy(cameraPosition);
@@ -261,39 +255,38 @@ function updateDrivingCamera(delta, snap = false) {
             1 - Math.exp(-6 * delta)
         );
     }
-
-    renderer.domElement.addEventListener('click', () => {
-        if (!matchInProgress || document.pointerLockElement === renderer.domElement) return;
-        if (typeof renderer.domElement.requestPointerLock !== 'function') {
-            pointerLockHint.textContent = 'Cursor locking is not supported by this browser';
-            return;
-        }
-
-        const lockRequest = renderer.domElement.requestPointerLock();
-        if (lockRequest instanceof Promise) {
-            lockRequest.catch(() => {
-                pointerLockHint.textContent = 'Click to lock cursor · Esc to release';
-            });
-        }
-    });
-
-    document.addEventListener('pointerlockchange', () => {
-        const isLocked = document.pointerLockElement === renderer.domElement;
-        document.body.classList.toggle('pointer-locked', isLocked);
-        if (!isLocked && pressedKeys.size > 0) {
-            pressedKeys.clear();
-            socket.emit('input', { keys: [] });
-        }
-        pointerLockHint.style.display = matchInProgress && !isLocked ? 'block' : 'none';
-    });
-
-    document.addEventListener('pointerlockerror', () => {
-        pointerLockHint.textContent = 'Cursor lock failed · Click to try again';
-        pointerLockHint.style.display = matchInProgress ? 'block' : 'none';
-    });
-
     camera.lookAt(cameraLookTarget);
 }
+
+renderer.domElement.addEventListener('click', () => {
+    if (!matchInProgress || document.pointerLockElement === renderer.domElement) return;
+    if (typeof renderer.domElement.requestPointerLock !== 'function') {
+        pointerLockHint.textContent = 'Cursor locking is not supported by this browser';
+        return;
+    }
+
+    const lockRequest = renderer.domElement.requestPointerLock();
+    if (lockRequest instanceof Promise) {
+        lockRequest.catch(() => {
+            pointerLockHint.textContent = 'Click to lock cursor · Esc to release';
+        });
+    }
+});
+
+document.addEventListener('pointerlockchange', () => {
+    const isLocked = document.pointerLockElement === renderer.domElement;
+    document.body.classList.toggle('pointer-locked', isLocked);
+    if (!isLocked && pressedKeys.size > 0) {
+        pressedKeys.clear();
+        socket.emit('input', { keys: [] });
+    }
+    pointerLockHint.style.display = matchInProgress && !isLocked ? 'block' : 'none';
+});
+
+document.addEventListener('pointerlockerror', () => {
+    pointerLockHint.textContent = 'Cursor lock failed · Click to try again';
+    pointerLockHint.style.display = matchInProgress ? 'block' : 'none';
+});
 
 socket.on('room_error', ({ message }) => {
     lobbyError.textContent = message;
@@ -337,7 +330,8 @@ socket.on('state', (state) => {
         const player = number === '1' ? playerOne : playerTwo;
         player.setServerState(
             playerState.position,
-            playerState.heading,
+            playerState.forward,
+            playerState.normal,
             playerState.jump_height
         );
         player.setColor(playerState.color);
