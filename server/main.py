@@ -17,7 +17,7 @@ frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 PLAYER_SPEED = 15.0
 TURN_SPEED = 2.5
-MAX_TRAIL_SEGMENTS = 350
+MAX_TRAIL_SEGMENTS = 300
 # Change this value to set how many trail segments each player keeps.
 COUNTDOWN_SECONDS = 10
 TICK_RATE = 60
@@ -372,23 +372,25 @@ async def game_loop():
                     continue
 
                 keys = player["keys"]
-                if number == 1:
-                    move_x = int("d" in keys) - int("a" in keys)
-                    move_z = int("s" in keys) - int("w" in keys)
+                turn_direction = int(bool(keys & {"d", "arrowright"})) - int(
+                    bool(keys & {"a", "arrowleft"})
+                )
+                if turn_direction:
+                    player["heading"] += turn_direction * TURN_SPEED * delta
                 else:
-                    move_x = int("arrowright" in keys) - int("arrowleft" in keys)
-                    move_z = int("arrowdown" in keys) - int("arrowup" in keys)
-
-                if move_x or move_z:
-                    target_heading = math.atan2(move_x, move_z)
-                    heading_difference = (
-                        target_heading - player["heading"] + math.pi
-                    ) % (2 * math.pi) - math.pi
-                    turn_amount = max(
-                        -TURN_SPEED * delta,
-                        min(TURN_SPEED * delta, heading_difference),
+                    move_z = int(bool(keys & {"s", "arrowdown"})) - int(
+                        bool(keys & {"w", "arrowup"})
                     )
-                    player["heading"] += turn_amount
+                    if move_z:
+                        target_heading = math.pi if move_z > 0 else 0
+                        heading_difference = (
+                            target_heading - player["heading"] + math.pi
+                        ) % (2 * math.pi) - math.pi
+                        turn_amount = max(
+                            -TURN_SPEED * delta,
+                            min(TURN_SPEED * delta, heading_difference),
+                        )
+                        player["heading"] += turn_amount
 
                 now = time.monotonic()
                 speed = PLAYER_SPEED * (2 if player["boost_until"] > now else 1)

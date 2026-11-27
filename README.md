@@ -18,8 +18,9 @@ Enter a name to create a private room and share its six-character code, or join
 another player's room with their code. Each match starts after a 10-second
 countdown when the second player joins. Use the color picker in the top-left
 corner to change your player and trail color.
-Player 1 steers with WASD, and player 2 steers with the arrow keys. Both players
-keep moving automatically; holding a direction smoothly steers toward it.
+Both players can steer with either WASD or the arrow keys. Players move
+automatically; hold left/right to keep turning, or up/down to steer
+north/south.
 Press Space to jump over trails, or Shift to double your speed for one second.
 
 The same image can be published to a registry and used by a Kubernetes

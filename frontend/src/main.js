@@ -108,18 +108,12 @@ lobbyPanel.innerHTML = `
         <section class="controls-tutorial" aria-labelledby="controls-heading">
             <h2 class="controls-heading" id="controls-heading">Controls</h2>
             <div class="controls-row">
-                <span>Player 1</span>
-                <span class="key-group" aria-label="W A S D">
+                <span>WASD or arrows</span>
+                <span class="key-group" aria-label="W A S D or arrow keys">
                     <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
                 </span>
             </div>
-            <div class="controls-row">
-                <span>Player 2</span>
-                <span class="key-group" aria-label="Arrow keys">
-                    <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>
-                </span>
-            </div>
-            <p class="controls-note">Your rider moves automatically. Hold a direction to smoothly steer; diagonals work too.</p>
+            <p class="controls-note">Both players can use either key set. Riders move automatically; hold left/right to keep turning, or up/down to steer north/south.</p>
             <div class="controls-row action-control">
                 <span>Jump over trails</span>
                 <span class="key-group"><kbd>SPACE</kbd></span>
@@ -305,6 +299,9 @@ socket.on('disconnect', () => {
 });
 
 window.addEventListener('keydown', (event) => {
+    if (event.target instanceof HTMLElement && event.target.isContentEditable) return;
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
     if (event.code === 'Space' && !event.repeat) {
         event.preventDefault();
         socket.emit('action', { action: 'jump' });
@@ -328,6 +325,12 @@ window.addEventListener('keyup', (event) => {
     if (pressedKeys.delete(key)) {
         socket.emit('input', { keys: Array.from(pressedKeys) });
     }
+});
+
+window.addEventListener('blur', () => {
+    if (pressedKeys.size === 0) return;
+    pressedKeys.clear();
+    socket.emit('input', { keys: [] });
 });
 
 function animate() {

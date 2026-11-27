@@ -164,14 +164,16 @@ export class Player {
         if (this.gameOver) return;
 
         const moveX =
-            Number(this.keys.has(this.controls[1])) -
-            Number(this.keys.has(this.controls[0]));
+            Number(this.keys.has(this.controls[1]) || this.keys.has("arrowright")) -
+            Number(this.keys.has(this.controls[0]) || this.keys.has("arrowleft"));
         const moveZ =
-            Number(this.keys.has(this.controls[3])) -
-            Number(this.keys.has(this.controls[2]));
+            Number(this.keys.has(this.controls[3]) || this.keys.has("arrowdown")) -
+            Number(this.keys.has(this.controls[2]) || this.keys.has("arrowup"));
 
-        if (moveX || moveZ) {
-            const targetHeading = Math.atan2(moveX, moveZ);
+        if (moveX) {
+            this.heading += Math.sign(moveX) * this.turnSpeed * delta;
+        } else if (moveZ) {
+            const targetHeading = moveZ > 0 ? Math.PI : 0;
             const headingDifference = Math.atan2(
                 Math.sin(targetHeading - this.heading),
                 Math.cos(targetHeading - this.heading)
