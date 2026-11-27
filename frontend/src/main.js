@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { makeFloor, makeGrid } from './floor';
 import { Player } from './player';
+import { showMatchStopped, updateMatchStatus } from './functionalities';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050510);
@@ -113,12 +114,12 @@ restartButton.addEventListener('click', () => {
     socket.emit('restart');
 });
 
-function showGameOver(winner) {
-    document.querySelector('#game-over-title').textContent =
-        winner === 'Draw' ? 'Draw!' : `${winner} Wins!`;
-    gameOverScreen.style.display = 'grid';
-    restartButton.style.display = 'inline-block';
-}
+const matchStatusElements = {
+    gameOverScreen,
+    title: document.querySelector('#game-over-title'),
+    restartButton,
+    roomStatus: document.querySelector('#room-status'),
+};
 
 socket.on('assigned', ({ player, room }) => {
     localPlayerNumber = player;
@@ -142,25 +143,11 @@ socket.on('state', (state) => {
         player.gameOver = playerState.game_over;
     }
 
-    if (!state.started && state.countdown !== null) {
-        restartButton.style.display = 'none';
-        gameOverScreen.dataset.waiting = 'false';
-        document.querySelector('#game-over-title').textContent =
-            `Starting in ${Math.ceil(state.countdown)}...`;
-        gameOverScreen.style.display = 'grid';
-    } else if (!state.started) {
-        restartButton.style.display = 'none';
-        gameOverScreen.dataset.waiting = 'true';
-        document.querySelector('#game-over-title').textContent = 'Waiting for an opponent...';
-        gameOverScreen.style.display = 'grid';
-    } else if (state.winner) {
-        gameOverScreen.dataset.waiting = 'false';
-        showGameOver(state.winner);
-    } else {
-        restartButton.style.display = 'none';
-        gameOverScreen.dataset.waiting = 'false';
-        gameOverScreen.style.display = 'none';
-    }
+    updateMatchStatus(state, matchStatusElements);
+});
+
+socket.on('disconnect', () => {
+    showMatchStopped(matchStatusElements);
 });
 
 window.addEventListener('keydown', (event) => {

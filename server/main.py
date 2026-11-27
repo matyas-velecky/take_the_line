@@ -1,6 +1,7 @@
 import asyncio
 import math
 import re
+import time
 from pathlib import Path
 
 import socketio
@@ -48,15 +49,17 @@ def new_room(room_id):
         },
         "winner": None,
         "started": False,
-        "countdown": None,
+        "countdown_deadline": None,
     }
 
 
 def reset_room(room):
     room["winner"] = None
     room["started"] = False
-    room["countdown"] = (
-        float(COUNTDOWN_SECONDS) if len(room["participants"]) == 2 else None
+    room["countdown_deadline"] = (
+        time.monotonic() + COUNTDOWN_SECONDS
+        if len(room["participants"]) == 2
+        else None
     )
     for number, position, heading in (
         (1, [-20.0, 0.5, 0.0], math.pi / 2),
@@ -78,7 +81,11 @@ def state_payload(room):
     payload = {
         "room": room["id"],
         "started": room["started"],
-        "countdown": room["countdown"],
+        "countdown": (
+            max(0.0, room["countdown_deadline"] - time.monotonic())
+            if room["countdown_deadline"] is not None
+            else None
+        ),
         "winner": room["winner"],
         "players": {},
     }
@@ -170,7 +177,7 @@ async def connect(sid, environ):
     room["participants"][player_number] = sid
     await sio.enter_room(sid, room["id"])
     if len(room["participants"]) == 2:
-        room["countdown"] = float(COUNTDOWN_SECONDS)
+        room["countdown_deadline"] = time.monotonic() + COUNTDOWN_SECONDS
 
     await sio.emit(
         "assigned",
@@ -236,11 +243,16 @@ async def game_loop():
         delta = 1 / TICK_RATE
 
         for room in list(rooms.values()):
-            if room["countdown"] is not None:
-                room["countdown"] = max(0.0, room["countdown"] - delta)
-                if room["countdown"] == 0:
-                    room["countdown"] = None
+            if room["countdown_deadline"] is not None:
+                if time.monotonic() >= room["countdown_deadline"]:
+                    room["countdown_deadline"] = None
                     room["started"] = True
+                else:
+                    room["started"] = False
+
+            if len(room["participants"]) != 2:
+                room["started"] = False
+                room["countdown_deadline"] = None
 
             if not room["started"] or room["winner"] is not None:
                 await emit_room_state(room)
