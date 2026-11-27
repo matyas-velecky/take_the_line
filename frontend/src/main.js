@@ -21,7 +21,7 @@ document.body.appendChild(renderer.domElement);
 const socket = io();
 
 const playerOne = new Player(-20, 0, 0, 0xFF0000);
-const playerTwo = new Player(20, 0, 0, 0x00FFFF);
+const playerTwo = new Player(20, 0, 0, 0x00FFFF, ['arrowleft', 'arrowright']);
 let localPlayerNumber = null;
 let pressedKeys = new Set();
 let matchStartedByUser = false;
@@ -133,6 +133,7 @@ socket.on('state', (state) => {
     for (const [number, playerState] of Object.entries(state.players)) {
         const player = number === '1' ? playerOne : playerTwo;
         player.mesh.position.set(playerState.position[0], playerState.position[1], playerState.position[2]);
+        player.mesh.rotation.y = playerState.heading;
         player.syncTrail(playerState.trails);
         player.gameOver = playerState.game_over;
     }
@@ -153,15 +154,18 @@ socket.on('state', (state) => {
 });
 
 window.addEventListener('keydown', (event) => {
-    if (["a", "d", "w", "s", "arrowleft", "arrowright", "arrowup", "arrowdown"].includes(event.key.toLowerCase())) {
-        pressedKeys.add(event.key.toLowerCase());
+    const key = event.key.toLowerCase();
+    if (["a", "d", "arrowleft", "arrowright"].includes(key)) {
+        pressedKeys.add(key);
         socket.emit('input', { keys: Array.from(pressedKeys) });
     }
 });
 
 window.addEventListener('keyup', (event) => {
-    pressedKeys.delete(event.key.toLowerCase());
-    socket.emit('input', { keys: Array.from(pressedKeys) });
+    const key = event.key.toLowerCase();
+    if (pressedKeys.delete(key)) {
+        socket.emit('input', { keys: Array.from(pressedKeys) });
+    }
 });
 
 function animate() {

@@ -1,13 +1,16 @@
 import * as THREE from "three";
 
 export class Player {
-    constructor(x, y, z, col, controls = ["a", "d", "w", "s"]) {
+    constructor(x, y, z, col, controls = ["a", "d"]) {
         const geometry = new THREE.BoxGeometry(2, 2, 2);
         const material = new THREE.MeshBasicMaterial({ color: col });
 
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.position.set(x, y + 0.5, z);
-        this.speed = 20;
+        this.speed = 15;
+        this.turnSpeed = 2.5;
+        this.heading = x <= 0 ? Math.PI / 2 : -Math.PI / 2;
+        this.mesh.rotation.y = this.heading;
         this.keys = new Set();
         this.controls = controls;
 
@@ -103,7 +106,8 @@ export class Player {
 
     reset(x = 0, z = 0) {
         this.mesh.position.set(x, 0.5, z);
-        this.mesh.rotation.set(0, 0, 0);
+        this.heading = x <= 0 ? Math.PI / 2 : -Math.PI / 2;
+        this.mesh.rotation.set(0, this.heading, 0);
         this.lastTrailPosition.copy(this.mesh.position);
         this.trailGroup.clear();
         this.keys.clear();
@@ -151,22 +155,14 @@ export class Player {
         this.check();
         if (this.gameOver) return;
 
-        this.createTrail();
-        let moveX = 0;
-        let moveZ = 0;
-
-        if (this.keys.has(this.controls[0])) moveX -= 1;
-        if (this.keys.has(this.controls[1])) moveX += 1;
-        if (this.keys.has(this.controls[2])) moveZ -= 1;
-        if (this.keys.has(this.controls[3])) moveZ += 1;
-
-        if (moveX !== 0 || moveZ !== 0) {
-            const length = Math.hypot(moveX, moveZ);
-            this.mesh.position.x += (moveX / length) * this.speed * delta;
-            this.mesh.position.z += (moveZ / length) * this.speed * delta;
-            this.mesh.rotation.y = Math.atan2(moveX, moveZ);
-        }
+        const turnLeft = this.keys.has(this.controls[0]);
+        const turnRight = this.keys.has(this.controls[1]);
+        this.heading += (Number(turnLeft) - Number(turnRight)) * this.turnSpeed * delta;
+        this.mesh.rotation.y = this.heading;
+        this.mesh.position.x += Math.sin(this.heading) * this.speed * delta;
+        this.mesh.position.z += Math.cos(this.heading) * this.speed * delta;
 
         this.check();
+        this.createTrail();
     }
 }

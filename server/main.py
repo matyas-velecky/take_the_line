@@ -11,13 +11,17 @@ fastapi_app = FastAPI()
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
+PLAYER_SPEED = 15.0
+TURN_SPEED = 2.5
+MAX_TRAIL_SEGMENTS = 20
+
 players = {}
 sid_to_player = {}
 ready_players = set()
 match = {
     "players": {
-        1: {"position": [-20.0, 0.5, 0.0], "keys": set(), "trails": [], "last_trail": [-20.0, 0.0], "game_over": False},
-        2: {"position": [20.0, 0.5, 0.0], "keys": set(), "trails": [], "last_trail": [20.0, 0.0], "game_over": False},
+        1: {"position": [-20.0, 0.5, 0.0], "heading": math.pi / 2, "keys": set(), "trails": [], "last_trail": [-20.0, 0.0], "game_over": False},
+        2: {"position": [20.0, 0.5, 0.0], "heading": -math.pi / 2, "keys": set(), "trails": [], "last_trail": [20.0, 0.0], "game_over": False},
     },
     "winner": None,
     "started": False,
@@ -27,9 +31,13 @@ match = {
 def reset_match():
     match["winner"] = None
     match["started"] = len(ready_players) >= 2
-    for number, position in ((1, [-20.0, 0.5, 0.0]), (2, [20.0, 0.5, 0.0])):
+    for number, position, heading in (
+        (1, [-20.0, 0.5, 0.0], math.pi / 2),
+        (2, [20.0, 0.5, 0.0], -math.pi / 2),
+    ):
         match["players"][number] = {
             "position": position,
+            "heading": heading,
             "keys": set(),
             "trails": [],
             "last_trail": [position[0], position[2]],
@@ -47,6 +55,7 @@ def state_payload():
     for number, player in match["players"].items():
         payload["players"][str(number)] = {
             "position": player["position"],
+            "heading": player["heading"],
             "trails": player["trails"],
             "game_over": player["game_over"],
         }
@@ -163,35 +172,29 @@ async def game_loop():
                 continue
 
             keys = player["keys"]
-            move_x = 0
-            move_z = 0
-
             if number == 1:
-                move_x -= "a" in keys
-                move_x += "d" in keys
-                move_z -= "w" in keys
-                move_z += "s" in keys
+                turn_left = "a" in keys
+                turn_right = "d" in keys
             else:
-                move_x -= "arrowleft" in keys
-                move_x += "arrowright" in keys
-                move_z -= "arrowup" in keys
-                move_z += "arrowdown" in keys
+                turn_left = "arrowleft" in keys
+                turn_right = "arrowright" in keys
 
-            if move_x or move_z:
-                length = math.hypot(move_x, move_z)
-                player["position"][0] += (move_x / length) * (20 / 60)
-                player["position"][2] += (move_z / length) * (20 / 60)
+            turn_direction = int(turn_left) - int(turn_right)
+            player["heading"] += turn_direction * TURN_SPEED / 60
+            player["position"][0] += math.sin(player["heading"]) * PLAYER_SPEED / 60
+            player["position"][2] += math.cos(player["heading"]) * PLAYER_SPEED / 60
 
-                player["position"][0] = max(-49, min(49, player["position"][0]))
-                player["position"][2] = max(-49, min(49, player["position"][2]))
+            player["position"][0] = max(-49, min(49, player["position"][0]))
+            player["position"][2] = max(-49, min(49, player["position"][2]))
 
-                end_x = player["position"][0]
-                end_z = player["position"][2]
-                last_x, last_z = player["last_trail"]
+            end_x = player["position"][0]
+            end_z = player["position"][2]
+            last_x, last_z = player["last_trail"]
 
-                if math.hypot(end_x - last_x, end_z - last_z) >= 0.15:
-                    player["trails"].append([last_x, last_z, end_x, end_z])
-                    player["last_trail"] = [end_x, end_z]
+            if math.hypot(end_x - last_x, end_z - last_z) >= 0.15:
+                player["trails"].append([last_x, last_z, end_x, end_z])
+                del player["trails"][:-MAX_TRAIL_SEGMENTS]
+                player["last_trail"] = [end_x, end_z]
 
         positions = {
             number: player["position"]
