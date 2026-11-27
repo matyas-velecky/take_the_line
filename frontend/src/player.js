@@ -106,6 +106,7 @@ export class Player {
     }
 
     syncTrail(segments, reset = false) {
+        let changed = false;
         if (reset) {
             this.trailMesh.count = 0;
             this.trailWriteIndex = 0;
@@ -138,8 +139,12 @@ export class Player {
             this.trailTransform.scale.set(1, 1, distance);
             this.trailTransform.updateMatrix();
             this.trailMesh.setMatrixAt(index, this.trailTransform.matrix);
+            this.trailMesh.instanceMatrix.addUpdateRange(index * 16, 16);
+            changed = true;
         }
-        this.trailMesh.instanceMatrix.needsUpdate = true;
+        if (changed) {
+            this.trailMesh.instanceMatrix.needsUpdate = true;
+        }
     }
 
     reset(x = 0, z = 0) {
@@ -173,8 +178,8 @@ export class Player {
         if (this.gameOver) return;
 
         const moveX =
-            Number(this.keys.has(this.controls[1]) || this.keys.has("arrowright")) -
-            Number(this.keys.has(this.controls[0]) || this.keys.has("arrowleft"));
+            Number(this.keys.has(this.controls[0]) || this.keys.has("arrowleft")) -
+            Number(this.keys.has(this.controls[1]) || this.keys.has("arrowright"));
         const moveZ =
             Number(this.keys.has(this.controls[3]) || this.keys.has("arrowdown")) -
             Number(this.keys.has(this.controls[2]) || this.keys.has("arrowup"));
