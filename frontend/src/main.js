@@ -222,14 +222,14 @@ function updateDrivingCamera(delta, snap = false) {
     const position = localPlayer.mesh.position;
 
     cameraPosition.set(
-        position.x - forwardX * 9,
-        position.y + 5,
-        position.z - forwardZ * 9
+        position.x - forwardX * 15,
+        position.y + 8,
+        position.z - forwardZ * 15
     );
     cameraLookTarget.set(
-        position.x + forwardX * 4,
+        position.x + forwardX * 7,
         position.y + 1,
-        position.z + forwardZ * 4
+        position.z + forwardZ * 7
     );
 
     if (snap) {
