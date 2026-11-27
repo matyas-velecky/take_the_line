@@ -23,49 +23,8 @@ const socket = io();
 const playerOne = new Player(-20, 0, 0, 0xFF0000);
 const playerTwo = new Player(20, 0, 0, 0x00FFFF, ['arrowleft', 'arrowright']);
 let localPlayerNumber = null;
+let localRoomId = null;
 let pressedKeys = new Set();
-let matchStartedByUser = false;
-
-const startScreen = document.createElement('div');
-startScreen.style.cssText = `
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: #050510;
-    color: white;
-    font-family: sans-serif;
-    z-index: 20;
-`;
-startScreen.innerHTML = `
-    <div style="text-align: center">
-        <h1 style="margin: 0 0 8px; font-size: clamp(40px, 10vw, 96px)">TAKE THE LINE</h1>
-        <p style="margin: 0 0 24px; color: #9adce2">Two players. One arena.</p>
-        <button id="start-game" type="button">Start Game</button>
-    </div>
-`;
-document.body.appendChild(startScreen);
-
-const startButton = document.querySelector('#start-game');
-startButton.style.cssText = `
-    min-width: 160px;
-    padding: 14px 24px;
-    border: 0;
-    border-radius: 6px;
-    background: #00ffff;
-    color: #050510;
-    font: bold 18px sans-serif;
-    cursor: pointer;
-`;
-
-startButton.addEventListener('click', () => {
-    matchStartedByUser = true;
-    socket.emit('ready');
-    document.querySelector('#game-over-title').textContent = 'Waiting for another player...';
-    gameOverScreen.dataset.waiting = 'true';
-    gameOverScreen.style.display = 'grid';
-    startScreen.style.display = 'none';
-});
 
 scene.add(makeFloor());
 scene.add(makeGrid());
@@ -91,14 +50,55 @@ gameOverScreen.style.cssText = `
 
 gameOverScreen.innerHTML = `
     <div style="text-align: center">
-        <h1 id="game-over-title" style="margin: 0 0 16px">GAME OVER</h1>
+        <h1 id="game-over-title" style="margin: 0 0 16px">Finding an opponent...</h1>
         <button id="restart-game" type="button">Restart</button>
     </div>
 `;
 document.body.appendChild(gameOverScreen);
 
+const settingsPanel = document.createElement('div');
+settingsPanel.style.cssText = `
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    display: grid;
+    gap: 8px;
+    padding: 12px 16px;
+    border: 1px solid #176171;
+    border-radius: 8px;
+    background: rgba(5, 5, 16, 0.88);
+    color: white;
+    font: 14px sans-serif;
+    z-index: 11;
+`;
+settingsPanel.innerHTML = `
+    <strong id="room-status">Finding an opponent...</strong>
+    <label style="display: flex; align-items: center; gap: 10px">
+        Player color
+        <input id="player-color" type="color" value="#ff0000" aria-label="Player color">
+    </label>
+`;
+document.body.appendChild(settingsPanel);
+
+const colorInput = document.querySelector('#player-color');
+let storedColor = localStorage.getItem('playerColor');
+if (storedColor && /^#[0-9a-f]{6}$/i.test(storedColor)) {
+    colorInput.value = storedColor;
+}
+
+colorInput.addEventListener('input', () => {
+    storedColor = colorInput.value;
+    localStorage.setItem('playerColor', colorInput.value);
+    if (localPlayerNumber === null) return;
+
+    const localPlayer = localPlayerNumber === 1 ? playerOne : playerTwo;
+    localPlayer.setColor(colorInput.value);
+    socket.emit('set_color', { color: colorInput.value });
+});
+
 const restartButton = document.querySelector('#restart-game');
 restartButton.style.cssText = `
+    display: none;
     min-width: 120px;
     padding: 12px 20px;
     border: 0;
@@ -117,16 +117,19 @@ function showGameOver(winner) {
     document.querySelector('#game-over-title').textContent =
         winner === 'Draw' ? 'Draw!' : `${winner} Wins!`;
     gameOverScreen.style.display = 'grid';
+    restartButton.style.display = 'inline-block';
 }
 
-socket.on('assigned', ({ player }) => {
+socket.on('assigned', ({ player, room }) => {
     localPlayerNumber = player;
-});
-
-socket.on('waiting', () => {
-    gameOverScreen.dataset.waiting = 'true';
-    document.querySelector('#game-over-title').textContent = 'Waiting for another player...';
-    gameOverScreen.style.display = 'grid';
+    localRoomId = room;
+    const localPlayer = localPlayerNumber === 1 ? playerOne : playerTwo;
+    const selectedColor = storedColor || (player === 1 ? '#ff0000' : '#00ffff');
+    colorInput.value = selectedColor;
+    localPlayer.setColor(selectedColor);
+    socket.emit('set_color', { color: selectedColor });
+    document.querySelector('#room-status').textContent =
+        `Room ${localRoomId} · Player ${localPlayerNumber}`;
 });
 
 socket.on('state', (state) => {
@@ -134,20 +137,27 @@ socket.on('state', (state) => {
         const player = number === '1' ? playerOne : playerTwo;
         player.mesh.position.set(playerState.position[0], playerState.position[1], playerState.position[2]);
         player.mesh.rotation.y = playerState.heading;
+        player.setColor(playerState.color);
         player.syncTrail(playerState.trails);
         player.gameOver = playerState.game_over;
     }
 
-    if (!state.started) {
-        if (matchStartedByUser) {
-            gameOverScreen.dataset.waiting = 'true';
-            document.querySelector('#game-over-title').textContent = 'Waiting for another player...';
-            gameOverScreen.style.display = 'grid';
-        }
+    if (!state.started && state.countdown !== null) {
+        restartButton.style.display = 'none';
+        gameOverScreen.dataset.waiting = 'false';
+        document.querySelector('#game-over-title').textContent =
+            `Starting in ${Math.ceil(state.countdown)}...`;
+        gameOverScreen.style.display = 'grid';
+    } else if (!state.started) {
+        restartButton.style.display = 'none';
+        gameOverScreen.dataset.waiting = 'true';
+        document.querySelector('#game-over-title').textContent = 'Waiting for an opponent...';
+        gameOverScreen.style.display = 'grid';
     } else if (state.winner) {
         gameOverScreen.dataset.waiting = 'false';
         showGameOver(state.winner);
     } else {
+        restartButton.style.display = 'none';
         gameOverScreen.dataset.waiting = 'false';
         gameOverScreen.style.display = 'none';
     }

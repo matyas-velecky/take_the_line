@@ -27,6 +27,14 @@ export class Player {
         this.gameOver = false;
     }
 
+    setColor(color) {
+        this.trailColor = color;
+        this.mesh.material.color.set(color);
+        for (const segment of this.trailGroup.children) {
+            segment.material.color.set(color);
+        }
+    }
+
     check() {
         this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -49, 49);
         this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -49, 49);
