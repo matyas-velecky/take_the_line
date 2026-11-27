@@ -126,6 +126,7 @@ input:focus { border-color: #00e5ff; box-shadow: 0 0 0 2px #00e5ff2e; }
 }
 
 .controls-row + .controls-row { margin-top: 10px; }
+.action-control { margin-top: 12px; }
 
 .key-group { display: flex; gap: 4px; }
 

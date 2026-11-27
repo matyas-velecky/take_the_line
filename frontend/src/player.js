@@ -36,8 +36,8 @@ export class Player {
     }
 
     check() {
-        this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -37.5, 37.5);
-        this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -37.5, 37.5);
+        this.mesh.position.x = THREE.MathUtils.clamp(this.mesh.position.x, -49, 49);
+        this.mesh.position.z = THREE.MathUtils.clamp(this.mesh.position.z, -49, 49);
     }
 
     collidesWithTrail(trailGroup, ignoreOwnRecentSegments = false) {

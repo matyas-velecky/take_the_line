@@ -21,6 +21,9 @@ MAX_TRAIL_SEGMENTS = 120
 # Change this value to set how many trail segments each player keeps.
 COUNTDOWN_SECONDS = 10
 TICK_RATE = 60
+JUMP_DURATION_SECONDS = 0.75
+JUMP_COOLDOWN_SECONDS = 1.5
+BOOST_DURATION_SECONDS = 1.0
 
 sid_to_player = {}
 sid_to_room = {}
@@ -43,6 +46,9 @@ def new_player(number, color):
         "keys": set(),
         "trails": [],
         "last_trail": [x, 0.0],
+        "jump_until": 0.0,
+        "jump_ready_at": 0.0,
+        "boost_until": 0.0,
         "game_over": False,
     }
 
@@ -82,11 +88,15 @@ def reset_room(room):
             "keys": set(),
             "trails": [],
             "last_trail": [position[0], position[2]],
+            "jump_until": 0.0,
+            "jump_ready_at": 0.0,
+            "boost_until": 0.0,
             "game_over": False,
         }
 
 
 def state_payload(room):
+    now = time.monotonic()
     payload = {
         "room": room["id"],
         "started": room["started"],
@@ -105,6 +115,16 @@ def state_payload(room):
             "heading": player["heading"],
             "color": player["color"],
             "name": player["name"],
+            "jump_height": (
+                2.5
+                * math.sin(
+                    math.pi
+                    * (1 - (player["jump_until"] - now) / JUMP_DURATION_SECONDS)
+                )
+                if player["jump_until"] > now
+                else 0.0
+            ),
+            "boosting": player["boost_until"] > now,
             "trails": player["trails"],
             "game_over": player["game_over"],
         }
@@ -279,6 +299,29 @@ async def input(sid, data):
 
 
 @sio.event
+async def action(sid, data):
+    player_number = sid_to_player.get(sid)
+    room = rooms.get(sid_to_room.get(sid))
+    if (
+        player_number is None
+        or room is None
+        or not room["started"]
+        or room["winner"] is not None
+        or len(room["participants"]) != 2
+        or not isinstance(data, dict)
+    ):
+        return
+
+    player = room["players"][player_number]
+    now = time.monotonic()
+    if data.get("action") == "jump" and now >= player["jump_ready_at"]:
+        player["jump_until"] = now + JUMP_DURATION_SECONDS
+        player["jump_ready_at"] = now + JUMP_COOLDOWN_SECONDS
+    elif data.get("action") == "boost" and now >= player["boost_until"]:
+        player["boost_until"] = now + BOOST_DURATION_SECONDS
+
+
+@sio.event
 async def set_color(sid, data):
     player_number = sid_to_player.get(sid)
     room = rooms.get(sid_to_room.get(sid))
@@ -347,8 +390,10 @@ async def game_loop():
                     )
                     player["heading"] += turn_amount
 
-                player["position"][0] += math.sin(player["heading"]) * PLAYER_SPEED * delta
-                player["position"][2] += math.cos(player["heading"]) * PLAYER_SPEED * delta
+                now = time.monotonic()
+                speed = PLAYER_SPEED * (2 if player["boost_until"] > now else 1)
+                player["position"][0] += math.sin(player["heading"]) * speed * delta
+                player["position"][2] += math.cos(player["heading"]) * speed * delta
 
                 player["position"][0] = max(-49, min(49, player["position"][0]))
                 player["position"][2] = max(-49, min(49, player["position"][2]))
@@ -375,11 +420,17 @@ async def game_loop():
                 room["players"][1]["game_over"] = True
                 room["players"][2]["game_over"] = True
             else:
-                player_one_hit = hit_trail(
-                    room, 1, ignore_recent=len(room["players"][1]["trails"][-12:])
+                player_one_hit = (
+                    room["players"][1]["jump_until"] <= time.monotonic()
+                    and hit_trail(
+                        room, 1, ignore_recent=len(room["players"][1]["trails"][-12:])
+                    )
                 )
-                player_two_hit = hit_trail(
-                    room, 2, ignore_recent=len(room["players"][2]["trails"][-12:])
+                player_two_hit = (
+                    room["players"][2]["jump_until"] <= time.monotonic()
+                    and hit_trail(
+                        room, 2, ignore_recent=len(room["players"][2]["trails"][-12:])
+                    )
                 )
 
                 if player_one_hit:

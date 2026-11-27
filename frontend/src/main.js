@@ -119,6 +119,14 @@ lobbyPanel.innerHTML = `
                 </span>
             </div>
             <p class="controls-note">Your rider moves automatically. Hold a direction to smoothly steer; diagonals work too.</p>
+            <div class="controls-row action-control">
+                <span>Jump over trails</span>
+                <span class="key-group"><kbd>SPACE</kbd></span>
+            </div>
+            <div class="controls-row action-control">
+                <span>Double speed for 1 second</span>
+                <span class="key-group"><kbd>SHIFT</kbd></span>
+            </div>
         </section>
 
         <div class="lobby-form">
@@ -244,7 +252,11 @@ document.querySelector('#copy-room-code').addEventListener('click', async () => 
 socket.on('state', (state) => {
     for (const [number, playerState] of Object.entries(state.players)) {
         const player = number === '1' ? playerOne : playerTwo;
-        player.mesh.position.set(playerState.position[0], playerState.position[1], playerState.position[2]);
+        player.mesh.position.set(
+            playerState.position[0],
+            playerState.position[1] + playerState.jump_height,
+            playerState.position[2]
+        );
         player.mesh.rotation.y = playerState.heading;
         player.setColor(playerState.color);
         player.syncTrail(playerState.trails);
@@ -259,8 +271,19 @@ socket.on('disconnect', () => {
 });
 
 window.addEventListener('keydown', (event) => {
+    if (event.code === 'Space' && !event.repeat) {
+        event.preventDefault();
+        socket.emit('action', { action: 'jump' });
+        return;
+    }
+
+    if (event.key === 'Shift' && !event.repeat) {
+        socket.emit('action', { action: 'boost' });
+        return;
+    }
+
     const key = event.key.toLowerCase();
-    if (["a", "d", "w", "s", "arrowleft", "arrowright", "arrowup", "arrowdown"].includes(key)) {
+    if (!event.repeat && ["a", "d", "w", "s", "arrowleft", "arrowright", "arrowup", "arrowdown"].includes(key)) {
         pressedKeys.add(key);
         socket.emit('input', { keys: Array.from(pressedKeys) });
     }
