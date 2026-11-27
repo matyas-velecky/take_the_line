@@ -95,26 +95,43 @@ lobbyPanel.style.cssText = `
     inset: 0;
     display: grid;
     place-items: center;
-    background: rgba(5, 5, 16, 0.94);
-    color: white;
-    font: 16px sans-serif;
     z-index: 30;
 `;
+lobbyPanel.className = 'lobby';
 lobbyPanel.innerHTML = `
-    <div style="display: grid; gap: 12px; width: min(320px, calc(100vw - 40px))">
-        <h1 style="margin: 0; text-align: center">Private match</h1>
-        <label style="display: grid; gap: 6px">
-            Your name
+    <main class="lobby-card">
+        <p class="lobby-kicker">Two players · One arena</p>
+        <h1 class="lobby-title">TAKE THE LINE</h1>
+        <p class="lobby-subtitle">Create a private room or join a friend. The match begins when both players arrive.</p>
+
+        <section class="controls-tutorial" aria-labelledby="controls-heading">
+            <h2 class="controls-heading" id="controls-heading">Controls</h2>
+            <div class="controls-row">
+                <span>Player 1</span>
+                <span class="key-group" aria-label="W A S D">
+                    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+                </span>
+            </div>
+            <div class="controls-row">
+                <span>Player 2</span>
+                <span class="key-group" aria-label="Arrow keys">
+                    <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>
+                </span>
+            </div>
+            <p class="controls-note">Your rider moves automatically. Hold a direction to smoothly steer; diagonals work too.</p>
+        </section>
+
+        <div class="lobby-form">
+            <label class="lobby-label" for="player-name">Your name</label>
             <input id="player-name" maxlength="20" autocomplete="nickname" placeholder="Enter your name">
-        </label>
-        <button id="create-room" type="button">Create private room</button>
-        <label style="display: grid; gap: 6px">
-            Room code
+            <button id="create-room" type="button">Create private room</button>
+            <div class="lobby-divider">OR JOIN A ROOM</div>
+            <label class="lobby-label" for="join-room-code">Room code</label>
             <input id="join-room-code" maxlength="6" autocomplete="off" placeholder="6-character code">
-        </label>
-        <button id="join-room" type="button">Join room</button>
-        <p id="lobby-error" role="status" style="min-height: 1.2em; margin: 0; color: #ff8c8c"></p>
-    </div>
+            <button id="join-room" type="button">Join room</button>
+            <p id="lobby-error" class="lobby-error" role="status"></p>
+        </div>
+    </main>
 `;
 document.body.appendChild(lobbyPanel);
 
